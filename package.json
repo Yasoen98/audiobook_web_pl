@@ -1,0 +1,24 @@
+{
+  "name": "polski-lektor-ai",
+  "private": true,
+  "packageManager": "pnpm@8.15.5",
+  "scripts": {
+    "postinstall": "pnpm -r install",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "format": "pnpm -r format",
+    "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm --filter backend dev\" \"pnpm --filter tts-svc dev\"",
+    "migrate": "pnpm --filter backend migrate",
+    "seed": "pnpm --filter backend seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "apps/frontend",
+    "apps/backend",
+    "apps/tts-svc",
+    "packages/shared"
+  ]
+}
