@@ -1,24 +1,14 @@
 {
-  "name": "polski-lektor-ai",
-  "private": true,
-  "packageManager": "pnpm@8.15.5",
+  "name": "audiobook_web_pl",
+  "version": "1.0.0",
+  "description": "Prosta aplikacja webowa do zarządzania audiobookami z panelem użytkownika i administratora.",
+  "main": "src/server.js",
   "scripts": {
-    "postinstall": "pnpm -r install",
-    "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
-    "build": "pnpm -r build",
-    "format": "pnpm -r format",
-    "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm --filter backend dev\" \"pnpm --filter tts-svc dev\"",
-    "migrate": "pnpm --filter backend migrate",
-    "seed": "pnpm --filter backend seed"
+    "start": "node src/server.js"
   },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  },
-  "workspaces": [
-    "apps/frontend",
-    "apps/backend",
-    "apps/tts-svc",
-    "packages/shared"
-  ]
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-session": "^1.17.3",
+    "multer": "^1.4.5-lts.1"
+  }
 }

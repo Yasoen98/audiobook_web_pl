@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Audiobooki</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Biblioteka audiobooków</h1>
+      <div id="user-info" class="hidden">
+        <span id="welcome-text"></span>
+        <button id="logout-btn" class="secondary">Wyloguj</button>
+      </div>
+    </header>
+
+    <section id="login-section">
+      <h2>Logowanie</h2>
+      <form id="login-form">
+        <label>
+          Nazwa użytkownika
+          <input type="text" id="username" required />
+        </label>
+        <label>
+          Hasło
+          <input type="password" id="password" required />
+        </label>
+        <button type="submit">Zaloguj</button>
+        <p class="hint">Dostępni użytkownicy: <strong>user/user123</strong>, <strong>admin/admin123</strong></p>
+      </form>
+    </section>
+
+    <section id="upload-section" class="hidden">
+      <h2>Dodaj nowy audiobook</h2>
+      <form id="upload-form" enctype="multipart/form-data">
+        <label>
+          Tytuł
+          <input type="text" name="title" required />
+        </label>
+        <label>
+          Opis
+          <textarea name="description" rows="3" required></textarea>
+        </label>
+        <label>
+          Okładka (obraz)
+          <input type="file" name="coverImage" accept="image/*" required />
+        </label>
+        <label>
+          Plik PDF
+          <input type="file" name="pdfFile" accept="application/pdf" required />
+        </label>
+        <label>
+          Nagranie MP3
+          <input type="file" name="audioFile" accept="audio/mpeg" required />
+        </label>
+        <button type="submit">Prześlij</button>
+        <p class="hint">Dozwolone są tylko kompletne zestawy plików.</p>
+      </form>
+    </section>
+
+    <section id="library-section" class="hidden">
+      <h2>Twoja biblioteka</h2>
+      <div id="library-list" class="library"></div>
+      <p id="empty-library" class="hidden">Brak audiobooków. Administrator może dodać nowe pozycje.</p>
+    </section>
+  </div>
+
+  <template id="library-item-template">
+    <article class="library-item">
+      <img class="cover" alt="Okładka audiobooka" />
+      <div class="content">
+        <h3></h3>
+        <p class="description"></p>
+        <div class="links">
+          <a class="pdf-link" target="_blank">Pobierz PDF</a>
+        </div>
+        <audio controls></audio>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
