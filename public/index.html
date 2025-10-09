@@ -50,8 +50,6 @@
         <label>
           Okładka (obraz, opcjonalnie)
           <input type="file" name="coverImage" accept="image/*" />
-          Okładka (obraz)
-          <input type="file" name="coverImage" accept="image/*" required />
         </label>
         <label>
           Plik PDF
@@ -143,30 +141,11 @@
         <div class="links">
           <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
         </div>
-        <p class="hint">Dozwolone są tylko kompletne zestawy plików.</p>
-      </form>
-    </section>
-
-    <section id="library-section" class="hidden">
-      <h2>Twoja biblioteka</h2>
-      <div id="library-list" class="library"></div>
-      <p id="empty-library" class="hidden">Brak audiobooków. Administrator może dodać nowe pozycje.</p>
-    </section>
-  </div>
-
-  <template id="library-item-template">
-    <article class="library-item">
-      <img class="cover" alt="Okładka audiobooka" />
-      <div class="content">
-        <h3></h3>
-        <p class="description"></p>
-        <div class="links">
-          <a class="pdf-link" target="_blank">Pobierz PDF</a>
-        </div>
-        <audio controls></audio>
       </div>
     </article>
   </template>
+
+  <footer class="site-footer">created by Yasoen</footer>
 
   <script src="app.js"></script>
 </body>
