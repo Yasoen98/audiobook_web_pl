@@ -79,23 +79,6 @@ ensureDirectories();
 ensureFile(LIBRARY_FILE, []);
 ensureFile(PROGRESS_FILE, {});
 ensureFile(CATEGORIES_FILE, []);
-ensureAuthorCategory();
-
-function ensureAuthorCategory() {
-  const categories = loadJson(CATEGORIES_FILE) || [];
-  const hasAuthorCategory = categories.some((category) => category.type === 'author');
-
-  if (!hasAuthorCategory) {
-    const authorCategory = {
-      id: 'category-author',
-      name: 'Autor',
-      type: 'author'
-    };
-
-    categories.unshift(authorCategory);
-    saveJson(CATEGORIES_FILE, categories);
-  }
-}
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -201,6 +184,35 @@ app.post('/api/categories', requireAdmin, (req, res) => {
   saveJson(CATEGORIES_FILE, categories);
 
   res.status(201).json(newCategory);
+});
+
+app.delete('/api/categories/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  const index = categories.findIndex((category) => category.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: 'Nie znaleziono kategorii.' });
+  }
+
+  categories.splice(index, 1);
+  saveJson(CATEGORIES_FILE, categories);
+
+  const library = loadJson(LIBRARY_FILE) || [];
+  let libraryUpdated = false;
+  const updatedLibrary = library.map((item) => {
+    if (item.categoryId === id) {
+      libraryUpdated = true;
+      return { ...item, categoryId: null };
+    }
+    return item;
+  });
+
+  if (libraryUpdated) {
+    saveJson(LIBRARY_FILE, updatedLibrary);
+  }
+
+  res.json({ message: 'Kategoria została usunięta.' });
 });
 
 app.get('/api/library', requireAuth, (req, res) => {

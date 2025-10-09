@@ -86,15 +86,13 @@
       <div class="library-header">
         <div>
           <h2 id="library-title">Twoja biblioteka</h2>
-          <p id="library-subtitle" class="subtitle">Wybierz autora, aby zobaczyć jego audiobooki.</p>
+          <p id="library-subtitle" class="subtitle">Wybierz kategorię, aby zobaczyć dostępne audiobooki.</p>
         </div>
         <div class="library-actions">
           <button id="back-to-categories" class="secondary hidden" type="button">Wszystkie kategorie</button>
-          <button id="back-to-authors" class="secondary hidden" type="button">Wszyscy autorzy</button>
         </div>
       </div>
       <div id="category-list" class="category-grid hidden"></div>
-      <div id="author-list" class="author-grid"></div>
       <div id="library-list" class="library-grid hidden"></div>
       <p id="empty-library" class="hidden">Brak audiobooków. Administrator może dodać nowe pozycje.</p>
     </section>
@@ -131,11 +129,14 @@
     </aside>
   </main>
 
-  <template id="author-card-template">
-    <button class="author-card" type="button">
-      <span class="author-name"></span>
-      <span class="author-count"></span>
-    </button>
+  <template id="category-card-template">
+    <div class="category-card">
+      <button class="category-select" type="button">
+        <span class="category-name"></span>
+        <span class="category-count"></span>
+      </button>
+      <button class="category-delete secondary" type="button">Usuń</button>
+    </div>
   </template>
 
   <template id="category-card-template">
@@ -156,7 +157,7 @@
             <button class="primary play-btn" type="button">Odtwórz</button>
           </div>
         </div>
-        <p class="author-line">Autor: <button type="button" class="link author-link"></button></p>
+        <p class="author-line">Autor: <span class="author-text"></span></p>
         <p class="description"></p>
         <div class="links">
           <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>

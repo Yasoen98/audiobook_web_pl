@@ -12,14 +12,11 @@ const categoryForm = document.getElementById('category-form');
 const categoryNameInput = document.getElementById('category-name');
 const categorySelect = document.getElementById('audiobook-category');
 const categoryList = document.getElementById('category-list');
-const authorList = document.getElementById('author-list');
 const backToCategoriesBtn = document.getElementById('back-to-categories');
-const backToAuthorsBtn = document.getElementById('back-to-authors');
 const libraryTitle = document.getElementById('library-title');
 const librarySubtitle = document.getElementById('library-subtitle');
 const libraryList = document.getElementById('library-list');
 const emptyLibrary = document.getElementById('empty-library');
-const authorTemplate = document.getElementById('author-card-template');
 const categoryTemplate = document.getElementById('category-card-template');
 const itemTemplate = document.getElementById('library-item-template');
 
@@ -48,11 +45,11 @@ let currentUser = null;
 let libraryItems = [];
 let categories = [];
 let currentCategoryId = null;
-let currentAuthor = null;
 let currentTrackId = null;
 let pendingResumeTime = null;
 let currentSpeed = 1;
 const lastProgressUpdate = {};
+const UNCATEGORIZED_ID = '__uncategorized__';
 
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, options);
@@ -83,10 +80,6 @@ function resolveAuthorName(author) {
   return trimmed || 'Nieznany autor';
 }
 
-function getAuthorCategory() {
-  return categories.find((category) => category.type === 'author');
-}
-
 function setLoggedIn(user) {
   currentUser = user;
   if (user) {
@@ -100,7 +93,6 @@ function setLoggedIn(user) {
       uploadSection.classList.add('hidden');
     }
     currentCategoryId = null;
-    currentAuthor = null;
     fetchLibrary();
   } else {
     currentUser = null;
@@ -111,7 +103,6 @@ function setLoggedIn(user) {
     loginSection.classList.remove('hidden');
     categories = [];
     currentCategoryId = null;
-    authorList.innerHTML = '';
     categoryList.innerHTML = '';
     libraryList.innerHTML = '';
     emptyLibrary.classList.add('hidden');
@@ -196,18 +187,19 @@ async function fetchLibrary() {
     categories = Array.isArray(categoriesResponse) ? categoriesResponse : [];
     libraryItems = Array.isArray(items) ? items : [];
 
-    if (currentCategoryId && !categories.some((category) => category.id === currentCategoryId)) {
+    if (
+      currentCategoryId &&
+      currentCategoryId !== UNCATEGORIZED_ID &&
+      !categories.some((category) => category.id === currentCategoryId)
+    ) {
       currentCategoryId = null;
     }
 
-    const currentCategory = categories.find((category) => category.id === currentCategoryId);
-    if (!currentCategory || currentCategory.type !== 'author') {
-      currentAuthor = null;
-    } else if (currentAuthor) {
-      const authorNames = groupByAuthor(libraryItems);
-      if (!authorNames.has(currentAuthor)) {
-        currentAuthor = null;
-      }
+    if (
+      currentCategoryId === UNCATEGORIZED_ID &&
+      !libraryItems.some((item) => !item.categoryId)
+    ) {
+      currentCategoryId = null;
     }
 
     renderLibrary();
@@ -220,27 +212,32 @@ async function fetchLibrary() {
 function renderLibrary() {
   updateCategorySelect();
 
-  if (!categories.length) {
+  const uncategorizedCount = libraryItems.filter((item) => !item.categoryId).length;
+  const hasCategories = categories.length > 0;
+  const hasItems = libraryItems.length > 0;
+
+  if (!hasCategories && uncategorizedCount === 0) {
     categoryList.classList.add('hidden');
-    authorList.classList.add('hidden');
     libraryList.classList.add('hidden');
     backToCategoriesBtn.classList.add('hidden');
-    backToAuthorsBtn.classList.add('hidden');
     libraryTitle.textContent = 'Brak kategorii';
     librarySubtitle.textContent = 'Administrator może dodać kategorię w panelu powyżej.';
     showEmptyState('Brak kategorii. Dodaj pierwszą kategorię, aby rozpocząć.');
     return;
   }
 
-  const hasItems = libraryItems.length > 0;
-
   if (!currentCategoryId) {
-    showCategoryOverview();
+    showCategoryOverview(uncategorizedCount);
     if (hasItems) {
       hideEmptyState();
     } else {
       showEmptyState('Brak audiobooków. Administrator może dodać nowe pozycje.');
     }
+    return;
+  }
+
+  if (currentCategoryId === UNCATEGORIZED_ID) {
+    renderUncategorizedCategory();
     return;
   }
 
@@ -251,11 +248,7 @@ function renderLibrary() {
     return;
   }
 
-  if (category.type === 'author') {
-    renderAuthorCategory(category);
-  } else {
-    renderCustomCategory(category);
-  }
+  renderCategoryItems(category);
 }
 
 function showEmptyState(message) {
@@ -271,81 +264,89 @@ function hideEmptyState() {
 
 function sortCategoriesForDisplay(list) {
   return [...list].sort((a, b) => {
-    if (a.type === 'author' && b.type !== 'author') return -1;
-    if (a.type !== 'author' && b.type === 'author') return 1;
-    return a.name.localeCompare(b.name, 'pl', { sensitivity: 'base' });
+    const nameA = (a.name || '').toLocaleLowerCase('pl');
+    const nameB = (b.name || '').toLocaleLowerCase('pl');
+    return nameA.localeCompare(nameB, 'pl', { sensitivity: 'base' });
   });
 }
 
-function showCategoryOverview() {
+function showCategoryOverview(uncategorizedCount) {
   if (!categoryTemplate) {
     return;
   }
   categoryList.innerHTML = '';
   categoryList.classList.remove('hidden');
-  authorList.classList.add('hidden');
   libraryList.classList.add('hidden');
   backToCategoriesBtn.classList.add('hidden');
-  backToAuthorsBtn.classList.add('hidden');
   libraryTitle.textContent = 'Kategorie';
   librarySubtitle.textContent = 'Wybierz kategorię, aby zobaczyć dostępne audiobooki.';
 
   const sortedCategories = sortCategoriesForDisplay(categories);
+  const categoriesToRender = [...sortedCategories];
 
-  sortedCategories.forEach((category) => {
+  if (uncategorizedCount > 0) {
+    categoriesToRender.push({
+      id: UNCATEGORIZED_ID,
+      name: 'Bez kategorii',
+      type: 'virtual'
+    });
+  }
+
+  categoriesToRender.forEach((category) => {
     const clone = categoryTemplate.content.cloneNode(true);
-    const button = clone.querySelector('.category-card');
+    const selectBtn = clone.querySelector('.category-select');
     const nameEl = clone.querySelector('.category-name');
     const countEl = clone.querySelector('.category-count');
+    const deleteBtn = clone.querySelector('.category-delete');
+
     const itemsInCategory =
-      category.type === 'author'
-        ? libraryItems.length
+      category.id === UNCATEGORIZED_ID
+        ? uncategorizedCount
         : libraryItems.filter((item) => item.categoryId === category.id).length;
 
     nameEl.textContent = category.name;
     countEl.textContent = formatCount(itemsInCategory);
-    button.addEventListener('click', () => {
+
+    selectBtn.addEventListener('click', () => {
       currentCategoryId = category.id;
-      currentAuthor = null;
       renderLibrary();
     });
+
+    if (!currentUser || currentUser.role !== 'admin' || category.id === UNCATEGORIZED_ID) {
+      deleteBtn.classList.add('hidden');
+    } else {
+      deleteBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        handleCategoryDelete(category);
+      });
+    }
 
     categoryList.appendChild(clone);
   });
 }
 
-function renderAuthorCategory(category) {
+function renderUncategorizedCategory() {
   categoryList.classList.add('hidden');
   backToCategoriesBtn.classList.remove('hidden');
 
-  const authorsMap = groupByAuthor(libraryItems);
+  const items = libraryItems.filter((item) => !item.categoryId);
+  const hasItems = renderItemsList(items);
 
-  if (!authorsMap.size) {
-    authorList.classList.add('hidden');
-    libraryList.classList.add('hidden');
-    backToAuthorsBtn.classList.add('hidden');
-    libraryTitle.textContent = `Kategoria: ${category.name}`;
-    librarySubtitle.textContent = 'Brak audiobooków przypisanych do autorów.';
-    showEmptyState('Brak audiobooków przypisanych do autorów.');
-    return;
-  }
+  libraryTitle.textContent = 'Audiobooki bez kategorii';
+  librarySubtitle.textContent = hasItems
+    ? 'Wybierz tytuł, aby uruchomić odtwarzacz.'
+    : 'Brak audiobooków przypisanych do tej sekcji.';
 
-  if (!currentAuthor || !authorsMap.has(currentAuthor)) {
-    currentAuthor = null;
-  }
-
-  if (!currentAuthor) {
-    showAuthorOverview(authorsMap, category.name);
+  if (hasItems) {
+    hideEmptyState();
   } else {
-    const items = authorsMap.get(currentAuthor) || [];
-    showAuthorItems(currentAuthor, items);
+    showEmptyState('Brak audiobooków przypisanych do tej sekcji.');
   }
 }
 
-function renderCustomCategory(category) {
+function renderCategoryItems(category) {
   categoryList.classList.add('hidden');
-  authorList.classList.add('hidden');
-  backToAuthorsBtn.classList.add('hidden');
   backToCategoriesBtn.classList.remove('hidden');
 
   const items = libraryItems.filter((item) => item.categoryId === category.id);
@@ -360,6 +361,31 @@ function renderCustomCategory(category) {
     hideEmptyState();
   } else {
     showEmptyState('Brak audiobooków w tej kategorii.');
+  }
+}
+
+async function handleCategoryDelete(category) {
+  if (!category || !category.id) {
+    return;
+  }
+
+  const confirmation = window.confirm(
+    `Czy na pewno chcesz usunąć kategorię "${category.name}"?`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  try {
+    await apiRequest(`/api/categories/${category.id}`, { method: 'DELETE' });
+    if (currentCategoryId === category.id) {
+      currentCategoryId = null;
+    }
+    await fetchLibrary();
+    alert('Kategoria została usunięta.');
+  } catch (error) {
+    alert(`Nie udało się usunąć kategorii: ${error.message}`);
   }
 }
 
@@ -390,11 +416,7 @@ function updateCategorySelect() {
   let nextValue = previousValue;
 
   if (!wasInitialized) {
-    const authorCategory = getAuthorCategory();
-    nextValue = authorCategory ? authorCategory.id : '';
-  } else if (!availableValues.includes(nextValue)) {
-    const authorCategory = getAuthorCategory();
-    nextValue = authorCategory ? authorCategory.id : '';
+    nextValue = '';
   }
 
   if (!availableValues.includes(nextValue)) {
@@ -403,79 +425,6 @@ function updateCategorySelect() {
 
   categorySelect.value = nextValue;
   categorySelect.dataset.initialized = 'true';
-}
-
-function groupByAuthor(items) {
-  const map = new Map();
-  items.forEach((item) => {
-    const key = resolveAuthorName(item.author);
-    if (!map.has(key)) {
-      map.set(key, []);
-    }
-    map.get(key).push(item);
-  });
-  return map;
-}
-
-function showAuthorOverview(authorsMap, categoryName) {
-  const authors = Array.from(authorsMap.entries()).sort((a, b) =>
-    a[0].localeCompare(b[0], 'pl', { sensitivity: 'base' })
-  );
-
-  if (!authors.length) {
-    authorList.innerHTML = '';
-    authorList.classList.add('hidden');
-    libraryList.classList.add('hidden');
-    backToAuthorsBtn.classList.add('hidden');
-    libraryTitle.textContent = `Kategoria: ${categoryName}`;
-    librarySubtitle.textContent = 'Brak audiobooków przypisanych do autorów.';
-    showEmptyState('Brak audiobooków przypisanych do autorów.');
-    return;
-  }
-
-  hideEmptyState();
-  authorList.innerHTML = '';
-  authorList.classList.remove('hidden');
-  libraryList.classList.add('hidden');
-  backToAuthorsBtn.classList.add('hidden');
-  libraryTitle.textContent = `Kategoria: ${categoryName}`;
-  librarySubtitle.textContent = 'Wybierz autora, aby zobaczyć jego audiobooki.';
-
-  if (!authorTemplate) {
-    return;
-  }
-
-  authors.forEach(([author, items]) => {
-    const clone = authorTemplate.content.cloneNode(true);
-    const button = clone.querySelector('.author-card');
-    const nameEl = clone.querySelector('.author-name');
-    const countEl = clone.querySelector('.author-count');
-
-    nameEl.textContent = author;
-    countEl.textContent = formatCount(items.length);
-    button.addEventListener('click', () => loadAuthor(author));
-
-    authorList.appendChild(clone);
-  });
-}
-
-function showAuthorItems(author, items) {
-  currentAuthor = author;
-  authorList.classList.add('hidden');
-  backToAuthorsBtn.classList.remove('hidden');
-
-  const hasItems = renderItemsList(items);
-
-  libraryTitle.textContent = `Audiobooki autora ${author}`;
-  librarySubtitle.textContent = hasItems
-    ? 'Wybierz tytuł, aby uruchomić odtwarzacz.'
-    : 'Brak audiobooków dla tego autora.';
-
-  if (hasItems) {
-    hideEmptyState();
-  } else {
-    showEmptyState('Brak audiobooków dla wybranego autora.');
-  }
 }
 
 function renderItemsList(items) {
@@ -504,7 +453,7 @@ function renderItemsList(items) {
     const pdfLink = clone.querySelector('.pdf-link');
     const playButton = clone.querySelector('.play-btn');
     const deleteButton = clone.querySelector('.delete-btn');
-    const authorLink = clone.querySelector('.author-link');
+    const authorText = clone.querySelector('.author-text');
 
     article.dataset.itemId = item.id;
     titleEl.textContent = item.title;
@@ -519,12 +468,7 @@ function renderItemsList(items) {
     }
 
     const authorName = resolveAuthorName(item.author);
-    authorLink.textContent = authorName;
-    authorLink.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      loadAuthor(authorName);
-    });
+    authorText.textContent = authorName;
 
     if (item.imageUrl) {
       cover.style.backgroundImage = `url(${item.imageUrl})`;
@@ -548,16 +492,6 @@ function renderItemsList(items) {
 
   highlightCurrentTrack();
   return true;
-}
-
-function loadAuthor(author) {
-  const authorCategory = getAuthorCategory();
-  if (!authorCategory) {
-    return;
-  }
-  currentCategoryId = authorCategory.id;
-  currentAuthor = resolveAuthorName(author);
-  renderLibrary();
 }
 
 function highlightCurrentTrack() {
@@ -746,16 +680,16 @@ if (uploadForm) {
       if (categorySelect) {
         categorySelect.dataset.initialized = 'true';
         const selectedCategory = formData.get('categoryId');
-        if (typeof selectedCategory === 'string') {
-          categorySelect.value = selectedCategory;
-          currentCategoryId = selectedCategory ? selectedCategory : null;
+        const trimmedCategory =
+          typeof selectedCategory === 'string' ? selectedCategory.trim() : '';
+        if (trimmedCategory) {
+          categorySelect.value = trimmedCategory;
+          currentCategoryId = trimmedCategory;
+        } else {
+          categorySelect.value = '';
+          currentCategoryId = UNCATEGORIZED_ID;
         }
       }
-      if (categorySelect && !categorySelect.value) {
-        const authorCategory = getAuthorCategory();
-        currentCategoryId = authorCategory ? authorCategory.id : null;
-      }
-      currentAuthor = null;
       fetchLibrary();
     } catch (error) {
       alert(`Nie udało się przesłać audiobooka: ${error.message}`);
@@ -781,7 +715,6 @@ if (categoryForm) {
         categoryNameInput.value = '';
       }
       currentCategoryId = null;
-      currentAuthor = null;
       await fetchLibrary();
       alert('Kategoria została dodana.');
     } catch (error) {
@@ -793,14 +726,6 @@ if (categoryForm) {
 if (backToCategoriesBtn) {
   backToCategoriesBtn.addEventListener('click', () => {
     currentCategoryId = null;
-    currentAuthor = null;
-    renderLibrary();
-  });
-}
-
-if (backToAuthorsBtn) {
-  backToAuthorsBtn.addEventListener('click', () => {
-    currentAuthor = null;
     renderLibrary();
   });
 }
