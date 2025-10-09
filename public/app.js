@@ -150,7 +150,11 @@ function setPlaybackSpeed(rate) {
   });
 }
 
-function openSpeedModal() {
+function openSpeedModal(triggerType = 'auto') {
+  if (triggerType !== 'manual') {
+    return;
+  }
+
   if (!speedModal.classList.contains('hidden')) {
     return;
   }
@@ -507,6 +511,9 @@ function highlightCurrentTrack() {
 
 async function loadTrack(item) {
   if (!currentUser) return;
+
+  closeSpeedModal();
+
   if (currentTrackId === item.id && audioElement.src) {
     if (audioElement.paused) {
       try {
@@ -748,8 +755,12 @@ progressBar.addEventListener('input', () => {
   audioElement.currentTime = Number(progressBar.value);
 });
 
-speedButton.addEventListener('click', () => {
-  openSpeedModal();
+speedButton.addEventListener('click', (event) => {
+  if (!event.isTrusted) {
+    return;
+  }
+
+  openSpeedModal('manual');
 });
 
 speedModalClose.addEventListener('click', () => {
