@@ -135,6 +135,15 @@ app.post('/api/library', requireAdmin, upload.fields([
   { name: 'pdfFile', maxCount: 1 },
   { name: 'audioFile', maxCount: 1 }
 ]), (req, res) => {
+  const { title, description, author } = req.body;
+  const files = req.files || {};
+
+  if (!title || !description || !author) {
+    return res.status(400).json({ message: 'Tytuł, autor i opis są wymagane.' });
+  }
+
+  if (!files.pdfFile || !files.audioFile) {
+    return res.status(400).json({ message: 'Pliki PDF i audio są wymagane.' });
   const { title, description } = req.body;
   const files = req.files || {};
 
@@ -151,6 +160,10 @@ app.post('/api/library', requireAdmin, upload.fields([
 
   const newItem = {
     id,
+    title: title.trim(),
+    description: description.trim(),
+    author: author.trim(),
+    imageUrl: files.coverImage ? `/uploads/images/${files.coverImage[0].filename}` : null,
     title,
     description,
     imageUrl: `/uploads/images/${files.coverImage[0].filename}`,
