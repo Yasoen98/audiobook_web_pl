@@ -559,6 +559,7 @@ async function loadTrack(item) {
   }
 
   highlightCurrentTrack();
+  openSpeedModal();
 }
 
 function applyPendingResume() {
