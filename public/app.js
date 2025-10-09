@@ -8,13 +8,19 @@ const loginForm = document.getElementById('login-form');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const uploadForm = document.getElementById('upload-form');
+const categoryForm = document.getElementById('category-form');
+const categoryNameInput = document.getElementById('category-name');
+const categorySelect = document.getElementById('audiobook-category');
+const categoryList = document.getElementById('category-list');
 const authorList = document.getElementById('author-list');
+const backToCategoriesBtn = document.getElementById('back-to-categories');
 const backToAuthorsBtn = document.getElementById('back-to-authors');
 const libraryTitle = document.getElementById('library-title');
 const librarySubtitle = document.getElementById('library-subtitle');
 const libraryList = document.getElementById('library-list');
 const emptyLibrary = document.getElementById('empty-library');
 const authorTemplate = document.getElementById('author-card-template');
+const categoryTemplate = document.getElementById('category-card-template');
 const itemTemplate = document.getElementById('library-item-template');
 
 const playerPanel = document.getElementById('player-panel');
@@ -28,15 +34,24 @@ const playPauseBtn = document.getElementById('play-pause');
 const progressBar = document.getElementById('player-progress');
 const currentTimeEl = document.getElementById('current-time');
 const durationEl = document.getElementById('duration');
-const speedSelect = document.getElementById('speed-select');
+const speedButton = document.getElementById('speed-popup-btn');
+const speedLabel = document.getElementById('speed-label');
+const speedModal = document.getElementById('speed-modal');
+const speedModalClose = document.getElementById('speed-modal-close');
+const speedOptions = Array.from(
+  document.querySelectorAll("input[name='speed-option']")
+);
 const volumeSlider = document.getElementById('volume-slider');
 const audioElement = document.getElementById('player-audio');
 
 let currentUser = null;
 let libraryItems = [];
+let categories = [];
+let currentCategoryId = null;
 let currentAuthor = null;
 let currentTrackId = null;
 let pendingResumeTime = null;
+let currentSpeed = 1;
 const lastProgressUpdate = {};
 
 async function apiRequest(url, options = {}) {
@@ -60,6 +75,18 @@ async function extractErrorMessage(response) {
   }
 }
 
+function resolveAuthorName(author) {
+  if (typeof author !== 'string') {
+    return 'Nieznany autor';
+  }
+  const trimmed = author.trim();
+  return trimmed || 'Nieznany autor';
+}
+
+function getAuthorCategory() {
+  return categories.find((category) => category.type === 'author');
+}
+
 function setLoggedIn(user) {
   currentUser = user;
   if (user) {
@@ -72,6 +99,7 @@ function setLoggedIn(user) {
     } else {
       uploadSection.classList.add('hidden');
     }
+    currentCategoryId = null;
     currentAuthor = null;
     fetchLibrary();
   } else {
@@ -81,10 +109,18 @@ function setLoggedIn(user) {
     uploadSection.classList.add('hidden');
     librarySection.classList.add('hidden');
     loginSection.classList.remove('hidden');
+    categories = [];
+    currentCategoryId = null;
     authorList.innerHTML = '';
+    categoryList.innerHTML = '';
     libraryList.innerHTML = '';
     emptyLibrary.classList.add('hidden');
+    if (categorySelect) {
+      categorySelect.innerHTML = '';
+      delete categorySelect.dataset.initialized;
+    }
     resetPlayer();
+    setPlaybackSpeed(1);
   }
 }
 
@@ -107,6 +143,36 @@ function resetPlayer() {
   playerBody.classList.add('hidden');
   playerPanel.classList.add('hidden');
   playerStatus.textContent = 'Wybierz audiobook, aby rozpocząć.';
+  closeSpeedModal();
+}
+
+function setPlaybackSpeed(rate) {
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return;
+  }
+
+  currentSpeed = rate;
+  audioElement.playbackRate = rate;
+  speedLabel.textContent = `${rate}x`;
+  speedOptions.forEach((option) => {
+    option.checked = Number(option.value) === rate;
+  });
+}
+
+function openSpeedModal() {
+  if (!speedModal.classList.contains('hidden')) {
+    return;
+  }
+  speedModal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
+function closeSpeedModal() {
+  if (speedModal.classList.contains('hidden')) {
+    return;
+  }
+  speedModal.classList.add('hidden');
+  document.body.classList.remove('modal-open');
 }
 
 async function fetchSession() {
@@ -123,46 +189,226 @@ async function fetchSession() {
 async function fetchLibrary() {
   if (!currentUser) return;
   try {
-    const items = await apiRequest('/api/library');
+    const [categoriesResponse, items] = await Promise.all([
+      apiRequest('/api/categories'),
+      apiRequest('/api/library')
+    ]);
+    categories = Array.isArray(categoriesResponse) ? categoriesResponse : [];
     libraryItems = Array.isArray(items) ? items : [];
-    renderLibrary(libraryItems);
+
+    if (currentCategoryId && !categories.some((category) => category.id === currentCategoryId)) {
+      currentCategoryId = null;
+    }
+
+    const currentCategory = categories.find((category) => category.id === currentCategoryId);
+    if (!currentCategory || currentCategory.type !== 'author') {
+      currentAuthor = null;
+    } else if (currentAuthor) {
+      const authorNames = groupByAuthor(libraryItems);
+      if (!authorNames.has(currentAuthor)) {
+        currentAuthor = null;
+      }
+    }
+
+    renderLibrary();
   } catch (error) {
     console.error(error);
     alert(`Nie udało się pobrać biblioteki: ${error.message}`);
   }
 }
 
-function renderLibrary(items) {
-  if (!items.length) {
-    authorList.innerHTML = '';
-    libraryList.innerHTML = '';
-    libraryList.classList.add('hidden');
+function renderLibrary() {
+  updateCategorySelect();
+
+  if (!categories.length) {
+    categoryList.classList.add('hidden');
     authorList.classList.add('hidden');
+    libraryList.classList.add('hidden');
+    backToCategoriesBtn.classList.add('hidden');
     backToAuthorsBtn.classList.add('hidden');
-    emptyLibrary.classList.remove('hidden');
-    libraryTitle.textContent = 'Twoja biblioteka';
-    librarySubtitle.textContent = 'Dodaj pierwszy audiobook, aby zacząć.';
+    libraryTitle.textContent = 'Brak kategorii';
+    librarySubtitle.textContent = 'Administrator może dodać kategorię w panelu powyżej.';
+    showEmptyState('Brak kategorii. Dodaj pierwszą kategorię, aby rozpocząć.');
     return;
   }
 
-  emptyLibrary.classList.add('hidden');
+  const hasItems = libraryItems.length > 0;
 
-  const authorsMap = groupByAuthor(items);
+  if (!currentCategoryId) {
+    showCategoryOverview();
+    if (hasItems) {
+      hideEmptyState();
+    } else {
+      showEmptyState('Brak audiobooków. Administrator może dodać nowe pozycje.');
+    }
+    return;
+  }
+
+  const category = categories.find((entry) => entry.id === currentCategoryId);
+  if (!category) {
+    currentCategoryId = null;
+    renderLibrary();
+    return;
+  }
+
+  if (category.type === 'author') {
+    renderAuthorCategory(category);
+  } else {
+    renderCustomCategory(category);
+  }
+}
+
+function showEmptyState(message) {
+  if (!emptyLibrary) return;
+  emptyLibrary.textContent = message;
+  emptyLibrary.classList.remove('hidden');
+}
+
+function hideEmptyState() {
+  if (!emptyLibrary) return;
+  emptyLibrary.classList.add('hidden');
+}
+
+function sortCategoriesForDisplay(list) {
+  return [...list].sort((a, b) => {
+    if (a.type === 'author' && b.type !== 'author') return -1;
+    if (a.type !== 'author' && b.type === 'author') return 1;
+    return a.name.localeCompare(b.name, 'pl', { sensitivity: 'base' });
+  });
+}
+
+function showCategoryOverview() {
+  if (!categoryTemplate) {
+    return;
+  }
+  categoryList.innerHTML = '';
+  categoryList.classList.remove('hidden');
+  authorList.classList.add('hidden');
+  libraryList.classList.add('hidden');
+  backToCategoriesBtn.classList.add('hidden');
+  backToAuthorsBtn.classList.add('hidden');
+  libraryTitle.textContent = 'Kategorie';
+  librarySubtitle.textContent = 'Wybierz kategorię, aby zobaczyć dostępne audiobooki.';
+
+  const sortedCategories = sortCategoriesForDisplay(categories);
+
+  sortedCategories.forEach((category) => {
+    const clone = categoryTemplate.content.cloneNode(true);
+    const button = clone.querySelector('.category-card');
+    const nameEl = clone.querySelector('.category-name');
+    const countEl = clone.querySelector('.category-count');
+    const itemsInCategory =
+      category.type === 'author'
+        ? libraryItems.length
+        : libraryItems.filter((item) => item.categoryId === category.id).length;
+
+    nameEl.textContent = category.name;
+    countEl.textContent = formatCount(itemsInCategory);
+    button.addEventListener('click', () => {
+      currentCategoryId = category.id;
+      currentAuthor = null;
+      renderLibrary();
+    });
+
+    categoryList.appendChild(clone);
+  });
+}
+
+function renderAuthorCategory(category) {
+  categoryList.classList.add('hidden');
+  backToCategoriesBtn.classList.remove('hidden');
+
+  const authorsMap = groupByAuthor(libraryItems);
+
+  if (!authorsMap.size) {
+    authorList.classList.add('hidden');
+    libraryList.classList.add('hidden');
+    backToAuthorsBtn.classList.add('hidden');
+    libraryTitle.textContent = `Kategoria: ${category.name}`;
+    librarySubtitle.textContent = 'Brak audiobooków przypisanych do autorów.';
+    showEmptyState('Brak audiobooków przypisanych do autorów.');
+    return;
+  }
+
   if (!currentAuthor || !authorsMap.has(currentAuthor)) {
     currentAuthor = null;
   }
 
-  if (currentAuthor) {
-    showAuthorItems(currentAuthor, authorsMap.get(currentAuthor) || []);
+  if (!currentAuthor) {
+    showAuthorOverview(authorsMap, category.name);
   } else {
-    showAuthorOverview(authorsMap);
+    const items = authorsMap.get(currentAuthor) || [];
+    showAuthorItems(currentAuthor, items);
   }
+}
+
+function renderCustomCategory(category) {
+  categoryList.classList.add('hidden');
+  authorList.classList.add('hidden');
+  backToAuthorsBtn.classList.add('hidden');
+  backToCategoriesBtn.classList.remove('hidden');
+
+  const items = libraryItems.filter((item) => item.categoryId === category.id);
+  const hasItems = renderItemsList(items);
+
+  libraryTitle.textContent = `Kategoria: ${category.name}`;
+  librarySubtitle.textContent = hasItems
+    ? 'Wybierz tytuł, aby uruchomić odtwarzacz.'
+    : 'Brak audiobooków w tej kategorii.';
+
+  if (hasItems) {
+    hideEmptyState();
+  } else {
+    showEmptyState('Brak audiobooków w tej kategorii.');
+  }
+}
+
+function updateCategorySelect() {
+  if (!categorySelect) {
+    return;
+  }
+
+  const wasInitialized = categorySelect.dataset.initialized === 'true';
+  const previousValue = categorySelect.value;
+
+  categorySelect.innerHTML = '';
+
+  const placeholderOption = document.createElement('option');
+  placeholderOption.value = '';
+  placeholderOption.textContent = 'Bez kategorii';
+  categorySelect.appendChild(placeholderOption);
+
+  const sortedCategories = sortCategoriesForDisplay(categories);
+  sortedCategories.forEach((category) => {
+    const option = document.createElement('option');
+    option.value = category.id;
+    option.textContent = category.name;
+    categorySelect.appendChild(option);
+  });
+
+  const availableValues = Array.from(categorySelect.options).map((option) => option.value);
+  let nextValue = previousValue;
+
+  if (!wasInitialized) {
+    const authorCategory = getAuthorCategory();
+    nextValue = authorCategory ? authorCategory.id : '';
+  } else if (!availableValues.includes(nextValue)) {
+    const authorCategory = getAuthorCategory();
+    nextValue = authorCategory ? authorCategory.id : '';
+  }
+
+  if (!availableValues.includes(nextValue)) {
+    nextValue = '';
+  }
+
+  categorySelect.value = nextValue;
+  categorySelect.dataset.initialized = 'true';
 }
 
 function groupByAuthor(items) {
   const map = new Map();
   items.forEach((item) => {
-    const key = item.author || 'Nieznany autor';
+    const key = resolveAuthorName(item.author);
     if (!map.has(key)) {
       map.set(key, []);
     }
@@ -171,17 +417,33 @@ function groupByAuthor(items) {
   return map;
 }
 
-function showAuthorOverview(authorsMap) {
-  authorList.innerHTML = '';
-  libraryList.classList.add('hidden');
-  authorList.classList.remove('hidden');
-  backToAuthorsBtn.classList.add('hidden');
-  libraryTitle.textContent = 'Autorzy';
-  librarySubtitle.textContent = 'Wybierz autora, aby zobaczyć jego audiobooki.';
-
+function showAuthorOverview(authorsMap, categoryName) {
   const authors = Array.from(authorsMap.entries()).sort((a, b) =>
     a[0].localeCompare(b[0], 'pl', { sensitivity: 'base' })
   );
+
+  if (!authors.length) {
+    authorList.innerHTML = '';
+    authorList.classList.add('hidden');
+    libraryList.classList.add('hidden');
+    backToAuthorsBtn.classList.add('hidden');
+    libraryTitle.textContent = `Kategoria: ${categoryName}`;
+    librarySubtitle.textContent = 'Brak audiobooków przypisanych do autorów.';
+    showEmptyState('Brak audiobooków przypisanych do autorów.');
+    return;
+  }
+
+  hideEmptyState();
+  authorList.innerHTML = '';
+  authorList.classList.remove('hidden');
+  libraryList.classList.add('hidden');
+  backToAuthorsBtn.classList.add('hidden');
+  libraryTitle.textContent = `Kategoria: ${categoryName}`;
+  librarySubtitle.textContent = 'Wybierz autora, aby zobaczyć jego audiobooki.';
+
+  if (!authorTemplate) {
+    return;
+  }
 
   authors.forEach(([author, items]) => {
     const clone = authorTemplate.content.cloneNode(true);
@@ -199,15 +461,38 @@ function showAuthorOverview(authorsMap) {
 
 function showAuthorItems(author, items) {
   currentAuthor = author;
-  libraryList.innerHTML = '';
-  libraryList.classList.remove('hidden');
   authorList.classList.add('hidden');
   backToAuthorsBtn.classList.remove('hidden');
+
+  const hasItems = renderItemsList(items);
+
   libraryTitle.textContent = `Audiobooki autora ${author}`;
-  librarySubtitle.textContent = 'Wybierz tytuł, aby uruchomić odtwarzacz.';
+  librarySubtitle.textContent = hasItems
+    ? 'Wybierz tytuł, aby uruchomić odtwarzacz.'
+    : 'Brak audiobooków dla tego autora.';
+
+  if (hasItems) {
+    hideEmptyState();
+  } else {
+    showEmptyState('Brak audiobooków dla wybranego autora.');
+  }
+}
+
+function renderItemsList(items) {
+  if (!itemTemplate) {
+    return false;
+  }
+  libraryList.innerHTML = '';
+
+  if (!items.length) {
+    libraryList.classList.add('hidden');
+    return false;
+  }
+
+  libraryList.classList.remove('hidden');
 
   const sortedItems = [...items].sort((a, b) =>
-    a.title.localeCompare(b.title, 'pl', { sensitivity: 'base' })
+    (a.title || '').localeCompare(b.title || '', 'pl', { sensitivity: 'base' })
   );
 
   sortedItems.forEach((item) => {
@@ -218,14 +503,28 @@ function showAuthorItems(author, items) {
     const descriptionEl = clone.querySelector('.description');
     const pdfLink = clone.querySelector('.pdf-link');
     const playButton = clone.querySelector('.play-btn');
+    const deleteButton = clone.querySelector('.delete-btn');
     const authorLink = clone.querySelector('.author-link');
 
     article.dataset.itemId = item.id;
     titleEl.textContent = item.title;
-    descriptionEl.textContent = item.description;
-    pdfLink.href = item.pdfUrl;
-    authorLink.textContent = item.author || 'Nieznany autor';
-    authorLink.addEventListener('click', () => loadAuthor(item.author));
+    descriptionEl.textContent = item.description || '';
+
+    if (item.pdfUrl) {
+      pdfLink.href = item.pdfUrl;
+      pdfLink.classList.remove('hidden');
+    } else {
+      pdfLink.removeAttribute('href');
+      pdfLink.classList.add('hidden');
+    }
+
+    const authorName = resolveAuthorName(item.author);
+    authorLink.textContent = authorName;
+    authorLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      loadAuthor(authorName);
+    });
 
     if (item.imageUrl) {
       cover.style.backgroundImage = `url(${item.imageUrl})`;
@@ -237,15 +536,28 @@ function showAuthorItems(author, items) {
 
     playButton.addEventListener('click', () => loadTrack(item));
 
+    if (currentUser && currentUser.role === 'admin') {
+      deleteButton.classList.remove('hidden');
+      deleteButton.addEventListener('click', () => handleDelete(item));
+    } else {
+      deleteButton.remove();
+    }
+
     libraryList.appendChild(clone);
   });
 
   highlightCurrentTrack();
+  return true;
 }
 
 function loadAuthor(author) {
-  currentAuthor = author;
-  renderLibrary(libraryItems);
+  const authorCategory = getAuthorCategory();
+  if (!authorCategory) {
+    return;
+  }
+  currentCategoryId = authorCategory.id;
+  currentAuthor = resolveAuthorName(author);
+  renderLibrary();
 }
 
 function highlightCurrentTrack() {
@@ -277,8 +589,9 @@ async function loadTrack(item) {
   playerBody.classList.remove('hidden');
   playerStatus.textContent = 'Ładowanie audiobooka...';
   playerTitle.textContent = item.title;
-  playerAuthor.textContent = `Autor: ${item.author}`;
-  playerDescription.textContent = item.description;
+  const authorName = resolveAuthorName(item.author);
+  playerAuthor.textContent = `Autor: ${authorName}`;
+  playerDescription.textContent = item.description || '';
 
   if (item.imageUrl) {
     playerCover.style.backgroundImage = `url(${item.imageUrl})`;
@@ -291,7 +604,7 @@ async function loadTrack(item) {
   audioElement.pause();
   audioElement.currentTime = 0;
   audioElement.src = item.audioUrl;
-  audioElement.playbackRate = Number(speedSelect.value) || 1;
+  setPlaybackSpeed(currentSpeed);
   pendingResumeTime = null;
 
   try {
@@ -312,6 +625,7 @@ async function loadTrack(item) {
   }
 
   highlightCurrentTrack();
+  openSpeedModal();
 }
 
 function applyPendingResume() {
@@ -358,6 +672,25 @@ function updateProgressUI() {
 
 function updateDurationUI() {
   durationEl.textContent = formatTime(audioElement.duration);
+}
+
+async function handleDelete(item) {
+  const confirmation = window.confirm(`Czy na pewno chcesz usunąć "${item.title}"?`);
+  if (!confirmation) {
+    return;
+  }
+
+  try {
+    await apiRequest(`/api/library/${item.id}`, { method: 'DELETE' });
+    libraryItems = libraryItems.filter((entry) => entry.id !== item.id);
+    if (currentTrackId === item.id) {
+      resetPlayer();
+    }
+    renderLibrary();
+    alert('Audiobook został usunięty.');
+  } catch (error) {
+    alert(`Nie udało się usunąć audiobooka: ${error.message}`);
+  }
 }
 
 async function saveProgress(audioId, time) {
@@ -410,6 +743,18 @@ if (uploadForm) {
         body: formData
       });
       uploadForm.reset();
+      if (categorySelect) {
+        categorySelect.dataset.initialized = 'true';
+        const selectedCategory = formData.get('categoryId');
+        if (typeof selectedCategory === 'string') {
+          categorySelect.value = selectedCategory;
+          currentCategoryId = selectedCategory ? selectedCategory : null;
+        }
+      }
+      if (categorySelect && !categorySelect.value) {
+        const authorCategory = getAuthorCategory();
+        currentCategoryId = authorCategory ? authorCategory.id : null;
+      }
       currentAuthor = null;
       fetchLibrary();
     } catch (error) {
@@ -418,10 +763,47 @@ if (uploadForm) {
   });
 }
 
-backToAuthorsBtn.addEventListener('click', () => {
-  currentAuthor = null;
-  renderLibrary(libraryItems);
-});
+if (categoryForm) {
+  categoryForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = categoryNameInput ? categoryNameInput.value.trim() : '';
+    if (!name) {
+      return;
+    }
+
+    try {
+      await apiRequest('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (categoryNameInput) {
+        categoryNameInput.value = '';
+      }
+      currentCategoryId = null;
+      currentAuthor = null;
+      await fetchLibrary();
+      alert('Kategoria została dodana.');
+    } catch (error) {
+      alert(`Nie udało się dodać kategorii: ${error.message}`);
+    }
+  });
+}
+
+if (backToCategoriesBtn) {
+  backToCategoriesBtn.addEventListener('click', () => {
+    currentCategoryId = null;
+    currentAuthor = null;
+    renderLibrary();
+  });
+}
+
+if (backToAuthorsBtn) {
+  backToAuthorsBtn.addEventListener('click', () => {
+    currentAuthor = null;
+    renderLibrary();
+  });
+}
 
 playPauseBtn.addEventListener('click', async () => {
   if (!audioElement.src) return;
@@ -441,10 +823,33 @@ progressBar.addEventListener('input', () => {
   audioElement.currentTime = Number(progressBar.value);
 });
 
-speedSelect.addEventListener('change', () => {
-  const rate = Number(speedSelect.value);
-  if (Number.isFinite(rate)) {
-    audioElement.playbackRate = rate;
+speedButton.addEventListener('click', () => {
+  openSpeedModal();
+});
+
+speedModalClose.addEventListener('click', () => {
+  closeSpeedModal();
+});
+
+speedModal.addEventListener('click', (event) => {
+  if (event.target === speedModal) {
+    closeSpeedModal();
+  }
+});
+
+speedOptions.forEach((option) => {
+  option.addEventListener('change', () => {
+    const rate = Number(option.value);
+    if (Number.isFinite(rate)) {
+      setPlaybackSpeed(rate);
+    }
+    closeSpeedModal();
+  });
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeSpeedModal();
   }
 });
 
@@ -492,5 +897,6 @@ audioElement.addEventListener('ended', () => {
 });
 
 audioElement.volume = Number(volumeSlider.value);
+setPlaybackSpeed(currentSpeed);
 
 fetchSession();
