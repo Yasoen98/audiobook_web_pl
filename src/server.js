@@ -144,6 +144,15 @@ app.post('/api/library', requireAdmin, upload.fields([
 
   if (!files.pdfFile || !files.audioFile) {
     return res.status(400).json({ message: 'Pliki PDF i audio są wymagane.' });
+  const { title, description } = req.body;
+  const files = req.files || {};
+
+  if (!title || !description) {
+    return res.status(400).json({ message: 'Tytuł i opis są wymagane.' });
+  }
+
+  if (!files.coverImage || !files.pdfFile || !files.audioFile) {
+    return res.status(400).json({ message: 'Wszystkie pliki (obraz, PDF, audio) są wymagane.' });
   }
 
   const library = loadJson(LIBRARY_FILE) || [];
@@ -155,6 +164,9 @@ app.post('/api/library', requireAdmin, upload.fields([
     description: description.trim(),
     author: author.trim(),
     imageUrl: files.coverImage ? `/uploads/images/${files.coverImage[0].filename}` : null,
+    title,
+    description,
+    imageUrl: `/uploads/images/${files.coverImage[0].filename}`,
     pdfUrl: `/uploads/pdfs/${files.pdfFile[0].filename}`,
     audioUrl: `/uploads/audio/${files.audioFile[0].filename}`
   };

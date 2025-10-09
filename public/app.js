@@ -37,6 +37,11 @@ let libraryItems = [];
 let currentAuthor = null;
 let currentTrackId = null;
 let pendingResumeTime = null;
+const libraryList = document.getElementById('library-list');
+const emptyLibrary = document.getElementById('empty-library');
+const itemTemplate = document.getElementById('library-item-template');
+
+let currentUser = null;
 const lastProgressUpdate = {};
 
 async function apiRequest(url, options = {}) {
@@ -109,6 +114,11 @@ function resetPlayer() {
   playerStatus.textContent = 'Wybierz audiobook, aby rozpocząć.';
 }
 
+    libraryList.innerHTML = '';
+    emptyLibrary.classList.add('hidden');
+  }
+}
+
 async function fetchSession() {
   try {
     const session = await apiRequest('/api/session');
@@ -126,6 +136,7 @@ async function fetchLibrary() {
     const items = await apiRequest('/api/library');
     libraryItems = Array.isArray(items) ? items : [];
     renderLibrary(libraryItems);
+    renderLibrary(items);
   } catch (error) {
     console.error(error);
     alert(`Nie udało się pobrać biblioteki: ${error.message}`);
@@ -213,6 +224,15 @@ function showAuthorItems(author, items) {
   sortedItems.forEach((item) => {
     const clone = itemTemplate.content.cloneNode(true);
     const article = clone.querySelector('.library-item');
+  libraryList.innerHTML = '';
+  if (!items.length) {
+    emptyLibrary.classList.remove('hidden');
+    return;
+  }
+  emptyLibrary.classList.add('hidden');
+
+  items.forEach((item) => {
+    const clone = itemTemplate.content.cloneNode(true);
     const cover = clone.querySelector('.cover');
     const titleEl = clone.querySelector('h3');
     const descriptionEl = clone.querySelector('.description');
@@ -358,6 +378,44 @@ function updateProgressUI() {
 
 function updateDurationUI() {
   durationEl.textContent = formatTime(audioElement.duration);
+    const audio = clone.querySelector('audio');
+
+    cover.src = item.imageUrl;
+    cover.alt = `Okładka: ${item.title}`;
+    titleEl.textContent = item.title;
+    descriptionEl.textContent = item.description;
+    pdfLink.href = item.pdfUrl;
+    audio.src = item.audioUrl;
+
+    attachAudioHandlers(audio, item.id);
+
+    libraryList.appendChild(clone);
+  });
+}
+
+function attachAudioHandlers(audio, itemId) {
+  audio.addEventListener('loadedmetadata', async () => {
+    try {
+      const data = await apiRequest(`/api/progress/${itemId}`);
+      if (typeof data.time === 'number' && data.time > 0 && data.time < audio.duration) {
+        audio.currentTime = data.time;
+      }
+    } catch (error) {
+      console.warn('Nie udało się pobrać postępu odsłuchu:', error.message);
+    }
+  });
+
+  audio.addEventListener('timeupdate', () => {
+    if (!currentUser || !audio.duration) return;
+    if (!lastProgressUpdate[itemId] || Date.now() - lastProgressUpdate[itemId] > 5000) {
+      lastProgressUpdate[itemId] = Date.now();
+      saveProgress(itemId, audio.currentTime);
+    }
+  });
+
+  audio.addEventListener('ended', () => {
+    saveProgress(itemId, 0);
+  });
 }
 
 async function saveProgress(audioId, time) {
