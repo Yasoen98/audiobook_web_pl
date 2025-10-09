@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json');
+const CATEGORIES_FILE = path.join(DATA_DIR, 'categories.json');
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 
 const USERS = {
@@ -37,6 +38,29 @@ function saveJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+function removeFileByUrl(urlPath) {
+  if (!urlPath || typeof urlPath !== 'string') {
+    return;
+  }
+
+  const sanitized = urlPath.replace(/^\/+/, '');
+  const absolutePath = path.normalize(path.join(__dirname, '..', sanitized));
+  const uploadsRoot = path.normalize(path.join(__dirname, '..', 'uploads'));
+  const relative = path.relative(uploadsRoot, absolutePath);
+
+  if (relative.startsWith('..')) {
+    return;
+  }
+
+  try {
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    }
+  } catch (error) {
+    console.warn(`Nie udało się usunąć pliku ${absolutePath}:`, error.message);
+  }
+}
+
 function ensureDirectories() {
   const dirs = [
     path.join(UPLOAD_DIR, 'images'),
@@ -54,6 +78,7 @@ function ensureDirectories() {
 ensureDirectories();
 ensureFile(LIBRARY_FILE, []);
 ensureFile(PROGRESS_FILE, {});
+ensureFile(CATEGORIES_FILE, []);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -125,8 +150,76 @@ app.get('/api/session', (req, res) => {
   res.status(204).send();
 });
 
+app.get('/api/categories', requireAuth, (req, res) => {
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  res.json(categories);
+});
+
+app.post('/api/categories', requireAdmin, (req, res) => {
+  const { name } = req.body || {};
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+
+  if (!trimmed) {
+    return res.status(400).json({ message: 'Nazwa kategorii jest wymagana.' });
+  }
+
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  const exists = categories.some(
+    (category) => category.name.toLowerCase() === trimmed.toLowerCase()
+  );
+
+  if (exists) {
+    return res
+      .status(409)
+      .json({ message: 'Kategoria o tej nazwie już istnieje.' });
+  }
+
+  const newCategory = {
+    id: `category-${Date.now()}`,
+    name: trimmed,
+    type: 'custom'
+  };
+
+  categories.push(newCategory);
+  saveJson(CATEGORIES_FILE, categories);
+
+  res.status(201).json(newCategory);
+});
+
+app.delete('/api/categories/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  const index = categories.findIndex((category) => category.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: 'Nie znaleziono kategorii.' });
+  }
+
+  categories.splice(index, 1);
+  saveJson(CATEGORIES_FILE, categories);
+
+  const library = loadJson(LIBRARY_FILE) || [];
+  let libraryUpdated = false;
+  const updatedLibrary = library.map((item) => {
+    if (item.categoryId === id) {
+      libraryUpdated = true;
+      return { ...item, categoryId: null };
+    }
+    return item;
+  });
+
+  if (libraryUpdated) {
+    saveJson(LIBRARY_FILE, updatedLibrary);
+  }
+
+  res.json({ message: 'Kategoria została usunięta.' });
+});
+
 app.get('/api/library', requireAuth, (req, res) => {
-  const items = loadJson(LIBRARY_FILE) || [];
+  const items = (loadJson(LIBRARY_FILE) || []).map((item) => ({
+    ...item,
+    categoryId: item.categoryId || null
+  }));
   res.json(items);
 });
 
@@ -136,6 +229,7 @@ app.post('/api/library', requireAdmin, upload.fields([
   { name: 'audioFile', maxCount: 1 }
 ]), (req, res) => {
   const { title, description, author } = req.body;
+  let { categoryId } = req.body;
   const files = req.files || {};
 
   if (!title || !description || !author) {
@@ -146,6 +240,16 @@ app.post('/api/library', requireAdmin, upload.fields([
     return res.status(400).json({ message: 'Pliki PDF i audio są wymagane.' });
   }
 
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  if (categoryId) {
+    categoryId = categoryId.trim();
+    if (!categories.some((category) => category.id === categoryId)) {
+      return res.status(400).json({ message: 'Wybrana kategoria nie istnieje.' });
+    }
+  } else {
+    categoryId = null;
+  }
+
   const library = loadJson(LIBRARY_FILE) || [];
   const id = `item-${Date.now()}`;
 
@@ -154,7 +258,10 @@ app.post('/api/library', requireAdmin, upload.fields([
     title: title.trim(),
     description: description.trim(),
     author: author.trim(),
-    imageUrl: files.coverImage ? `/uploads/images/${files.coverImage[0].filename}` : null,
+    categoryId,
+    imageUrl: files.coverImage
+      ? `/uploads/images/${files.coverImage[0].filename}`
+      : null,
     pdfUrl: `/uploads/pdfs/${files.pdfFile[0].filename}`,
     audioUrl: `/uploads/audio/${files.audioFile[0].filename}`
   };
@@ -163,6 +270,37 @@ app.post('/api/library', requireAdmin, upload.fields([
   saveJson(LIBRARY_FILE, library);
 
   res.status(201).json(newItem);
+});
+
+app.delete('/api/library/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const library = loadJson(LIBRARY_FILE) || [];
+  const index = library.findIndex((item) => item.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: 'Nie znaleziono audiobooka.' });
+  }
+
+  const [removedItem] = library.splice(index, 1);
+  saveJson(LIBRARY_FILE, library);
+
+  ['imageUrl', 'pdfUrl', 'audioUrl'].forEach((key) => removeFileByUrl(removedItem[key]));
+
+  const progress = loadJson(PROGRESS_FILE) || {};
+  let progressUpdated = false;
+
+  Object.keys(progress).forEach((username) => {
+    if (progress[username] && Object.prototype.hasOwnProperty.call(progress[username], id)) {
+      delete progress[username][id];
+      progressUpdated = true;
+    }
+  });
+
+  if (progressUpdated) {
+    saveJson(PROGRESS_FILE, progress);
+  }
+
+  res.json({ message: 'Audiobook został usunięty.' });
 });
 
 app.get('/api/progress/:audioId', requireAuth, (req, res) => {
