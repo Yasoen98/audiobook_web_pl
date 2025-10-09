@@ -1,106 +1,88 @@
-# Polski Lektor AI
+# Audiobook Web PL
 
-Monorepo z aplikacją webową do trenowania modeli głosu i odczytu dokumentów PDF. Projekt składa się z trzech aplikacji:
+Prosta aplikacja webowa umożliwiająca użytkownikom odtwarzanie audiobooków z zapamiętywaniem postępu, a administratorom zarządzanie biblioteką nagrań.
 
-- **Frontend (Next.js 14)** – panel użytkownika, odtwarzacz i zarządzanie biblioteką.
-- **Backend (Fastify + Prisma)** – API, kolejki BullMQ, integracja z magazynem plików i Postgres.
-- **Mikroserwis TTS (FastAPI + PyTorch)** – przygotowanie datasetów, symulowany trening oraz inferencja audio.
+## Wymagania wstępne
 
-## Wymagania
+- System Linux z dostępem do powłoki Bash
+- Połączenie z internetem (na potrzeby instalacji zależności)
+- Zainstalowany `git`
 
-- Node.js 20
-- pnpm 8
-- Python 3.11
-- Docker + docker-compose
+> **Uwaga:** Instrukcja zakłada świeży system Ubuntu/Debian. Na innych dystrybucjach polecenia mogą się nieco różnić.
 
-## Szybki start (dev)
+## Instalacja krok po kroku
 
-```bash
-pnpm install
-cp .env.example .env
-pnpm --filter backend generate
-pnpm --filter backend migrate:dev
-pnpm --filter backend seed
-pnpm dev
-```
+1. **Zainstaluj Node.js (LTS) oraz npm**
 
-Aplikacje będą dostępne pod adresami:
+   ```bash
+   sudo apt update
+   sudo apt install -y curl ca-certificates
+   curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+   sudo apt install -y nodejs build-essential
+   ```
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:4000
-- Dokumentacja TTS: http://localhost:8000/docs
+   Polecenie z Nodesource doda repozytorium z aktualną wersją Node.js 18 LTS. Możesz sprawdzić instalację:
 
-## Docker Compose
+   ```bash
+   node -v
+   npm -v
+   ```
 
-```bash
-docker-compose up --build
-```
+2. **Sklonuj repozytorium i przejdź do katalogu projektu**
 
-Domyślne porty:
+   ```bash
+   git clone <adres_repozytorium>
+   cd audiobook_web_pl
+   ```
 
-- Frontend – 3000
-- Backend – 4000
-- TTS – 8000
-- Postgres – 5432
-- Redis – 6379
-- MinIO – 9000 / konsola 9001
-- ClamAV – 3310
+3. **Zainstaluj zależności projektu**
 
-## Konta demo
+   ```bash
+   npm install
+   ```
 
-- **demo@lektor.ai / Demo!1234** – użytkownik z przygotowanym modelem i PDF.
+   Jeśli pojawi się problem z dostępem do rejestru npm, upewnij się że sieć nie blokuje połączenia `https://registry.npmjs.org`.
 
-## Struktura katalogów
+4. **Utwórz katalogi na przesyłane pliki (opcjonalne)**
 
-```
-apps/
-  frontend/   # Next.js + Tailwind + Zustand
-  backend/    # Fastify + Prisma + BullMQ
-  tts-svc/    # FastAPI + PyTorch (stub treningu)
-packages/
-  shared/     # Współdzielone schematy Zod i typy
-```
+   Serwer tworzy wymagane katalogi (`uploads/images`, `uploads/pdfs`, `uploads/audio`) automatycznie przy pierwszym uruchomieniu. Jeśli chcesz je przygotować ręcznie:
 
-## Testy i jakość kodu
+   ```bash
+   mkdir -p uploads/images uploads/pdfs uploads/audio
+   ```
 
-```bash
-pnpm --filter frontend test
-pnpm --filter backend test
-pnpm --filter backend lint
-pnpm --filter frontend lint
-pnpm --filter backend format
-pnpm --filter frontend format
-cd apps/tts-svc && pytest && ruff check . && mypy .
-```
+## Uruchomienie aplikacji
 
-## Kolejki i zadania tła
+1. **Wystartuj serwer**
 
-Backend uruchamia kolejkę `tts-batch` w BullMQ. Zadania symulują generowanie audio, a wynikowe pliki są odkładane w pamięci (stub). W docelowej implementacji należy podpiąć MinIO/S3 i mikroserwis TTS.
+   ```bash
+   npm start
+   ```
 
-## Mikroserwis TTS
+   Domyślnie aplikacja nasłuchuje na porcie `3000`. W terminalu powinien pojawić się komunikat `Serwer działa na porcie 3000`.
 
-- `POST /dataset/prepare` – zapisuje przesłane próbki i tworzy manifest JSONL.
-- `POST /train` – symuluje trening i aktualizuje status.
-- `GET /train/{id}/status` – zwraca status.
-- `POST /tts/{modelId}` – generuje próbkę audio (fala sinusoidalna) z metadanymi watermarku.
+2. **Wejdź na stronę**
 
-Instrukcja integracji z rzeczywistym modelem Coqui-TTS znajduje się w komentarzach TODO w kodzie.
+   Otwórz przeglądarkę i przejdź pod adres [http://localhost:3000](http://localhost:3000).
 
-## Segmentacja PDF
+## Logowanie i role
 
-Moduł `textProcessing.ts` zawiera uproszczone reguły segmentacji polskich zdań oraz normalizację liczb wykorzystywane w backendzie i przetestowane przy pomocy Vitest.
+- **Administrator**: `admin` / `admin123`
+- **Użytkownik**: `user` / `user123`
 
-## Bezpieczeństwo
+Po zalogowaniu jako administrator uzyskasz dostęp do formularza przesyłania nowych pozycji (okładka, plik PDF oraz nagranie MP3). Zwykły użytkownik ma dostęp do biblioteki audiobooków i odtwarzacza zapamiętującego postęp słuchania.
 
-- Walidacja MIME/magic bytes.
-- Limit rozmiaru uploadu (50 MB).
-- Rate limiting i nagłówki CSP (helmet).
-- Integracja z ClamAV przygotowana pod docker-compose (stub w kodzie do dalszego rozwinięcia).
+## Struktura danych
 
-## TODO produkcyjne
+- `data/library.json` — lista elementów biblioteki (tworzona automatycznie, jeśli brak)
+- `data/progress.json` — zapis postępów odtwarzania poszczególnych użytkowników
+- `uploads/` — katalog na przesłane przez administratora pliki
 
-- Podłączenie prawdziwego storage (MinIO/S3) zamiast pamięci.
-- Integracja z kolejką treningową mikroserwisu TTS.
-- Implementacja realnego ASR i forced alignmentu (np. Montreal Forced Aligner).
-- Rozszerzenie normalizacji tekstu (daty, waluty, liczby porządkowe).
-- Dodanie autoryzacji administracyjnej w frontendzie (panel admina).
+Pliki są zapisywane w formacie JSON. Możesz wykonywać kopie zapasowe tych plików, aby przenosić bibliotekę między środowiskami.
+
+## Dodatkowe informacje
+
+- Zmienna środowiskowa `PORT` pozwala zmienić port, na którym działa serwer (np. `PORT=4000 npm start`).
+- W przypadku wdrożenia na produkcję zaleca się ustawienie własnej, bezpiecznej wartości `secret` w konfiguracji sesji (`src/server.js`).
+- Serwer udostępnia statycznie katalog `public/`, który zawiera interfejs użytkownika aplikacji.
+
