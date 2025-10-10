@@ -34,6 +34,19 @@
     <section id="upload-section" class="hidden">
       <h2>Zarządzanie biblioteką</h2>
       <div class="admin-panels">
+        <form id="user-form" class="admin-card">
+          <h3>Dodaj użytkownika</h3>
+          <label>
+            Login
+            <input type="text" id="new-username" autocomplete="off" required />
+          </label>
+          <label>
+            Hasło
+            <input type="password" id="new-password" required />
+          </label>
+          <button type="submit">Utwórz użytkownika</button>
+          <p class="hint">Nowi użytkownicy otrzymują uprawnienia słuchacza.</p>
+        </form>
         <form id="category-form" class="admin-card">
           <h3>Dodaj kategorię</h3>
           <label>
@@ -71,10 +84,10 @@
           </label>
           <label>
             Nagranie MP3
-            <input type="file" name="audioFile" accept="audio/mpeg" required />
+            <input type="file" name="audioFiles" accept="audio/mpeg" multiple required />
           </label>
           <button type="submit">Prześlij audiobook</button>
-          <p class="hint">Okładka jest opcjonalna. Jeśli nie dodasz obrazu, wyświetlony zostanie czarny kwadrat.</p>
+          <p class="hint">Możesz dodać wiele plików MP3 jako oddzielne rozdziały. Okładka jest opcjonalna.</p>
         </form>
       </div>
     </section>
@@ -109,6 +122,10 @@
           <p id="player-description" class="player-description"></p>
         </div>
         <div class="player-controls">
+          <div class="chapter-row">
+            <label for="chapter-select">Rozdział</label>
+            <select id="chapter-select"></select>
+          </div>
           <div class="progress-row">
             <span id="current-time">00:00</span>
             <input type="range" id="player-progress" value="0" min="0" step="1" />
@@ -164,14 +181,15 @@
         <h3 id="speed-modal-title">Tempo odtwarzania</h3>
         <button id="speed-modal-close" class="icon-button" type="button" aria-label="Zamknij">✕</button>
       </div>
-      <p class="modal-description">Wybierz tempo, w jakim chcesz słuchać audiobooka.</p>
+      <p class="modal-description">Ustaw tempo ręcznie w zakresie od 0.5x do 2x.</p>
       <div class="speed-options">
-        <label><input type="radio" name="speed-option" value="0.5" />0.5x</label>
-        <label><input type="radio" name="speed-option" value="0.75" />0.75x</label>
-        <label><input type="radio" name="speed-option" value="1" />1x</label>
-        <label><input type="radio" name="speed-option" value="1.25" />1.25x</label>
-        <label><input type="radio" name="speed-option" value="1.5" />1.5x</label>
-        <label><input type="radio" name="speed-option" value="2" />2x</label>
+        <label class="speed-range-label" for="speed-range">Suwak tempa</label>
+        <input type="range" id="speed-range" min="0.5" max="2" step="0.05" value="1" />
+        <div class="speed-manual">
+          <label for="speed-input">Wartość</label>
+          <input type="number" id="speed-input" min="0.5" max="2" step="0.05" value="1" />
+          <button id="speed-apply" class="primary" type="button">Zastosuj</button>
+        </div>
       </div>
     </div>
   </div>
