@@ -573,6 +573,8 @@ function renderCategoryItems(category) {
   } else {
     showEmptyState('Brak audiobooków w tej kategorii.');
   }
+
+  renderCategoryItems(category);
 }
 
 async function handleCategoryDelete(category) {

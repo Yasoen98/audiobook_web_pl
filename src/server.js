@@ -486,6 +486,37 @@ app.get('/api/progress', requireAuth, (req, res) => {
   res.json(entry);
 });
 
+app.delete('/api/library/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const library = loadJson(LIBRARY_FILE) || [];
+  const index = library.findIndex((item) => item.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: 'Nie znaleziono audiobooka.' });
+  }
+
+  const [removedItem] = library.splice(index, 1);
+  saveJson(LIBRARY_FILE, library);
+
+  ['imageUrl', 'pdfUrl', 'audioUrl'].forEach((key) => removeFileByUrl(removedItem[key]));
+
+  const progress = loadJson(PROGRESS_FILE) || {};
+  let progressUpdated = false;
+
+  Object.keys(progress).forEach((username) => {
+    if (progress[username] && Object.prototype.hasOwnProperty.call(progress[username], id)) {
+      delete progress[username][id];
+      progressUpdated = true;
+    }
+  });
+
+  if (progressUpdated) {
+    saveJson(PROGRESS_FILE, progress);
+  }
+
+  res.json({ message: 'Audiobook został usunięty.' });
+});
+
 app.get('/api/progress/:audioId', requireAuth, (req, res) => {
   const { audioId } = req.params;
   const username = req.session.user.username;
