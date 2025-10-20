@@ -12,7 +12,12 @@
       <h1>Biblioteka audiobooków</h1>
       <div id="user-info" class="hidden">
         <span id="welcome-text"></span>
-        <button id="logout-btn" class="secondary">Wyloguj</button>
+        <div class="user-actions">
+          <button id="admin-toggle-btn" class="secondary hidden" type="button">
+            Panel administratora
+          </button>
+          <button id="logout-btn" class="secondary" type="button">Wyloguj</button>
+        </div>
       </div>
     </header>
 
@@ -33,35 +38,81 @@
     </section>
 
     <section id="upload-section" class="hidden">
-      <h2>Dodaj nowy audiobook</h2>
-      <form id="upload-form" enctype="multipart/form-data">
-        <label>
-          Tytuł
-          <input type="text" name="title" required />
-        </label>
-        <label>
-          Autor
-          <input type="text" name="author" required />
-        </label>
-        <label>
-          Opis
-          <textarea name="description" rows="3" required></textarea>
-        </label>
-        <label>
-          Okładka (obraz, opcjonalnie)
-          <input type="file" name="coverImage" accept="image/*" />
-        </label>
-        <label>
-          Plik PDF
-          <input type="file" name="pdfFile" accept="application/pdf" required />
-        </label>
-        <label>
-          Nagranie MP3
-          <input type="file" name="audioFile" accept="audio/mpeg" required />
-        </label>
-        <button type="submit">Prześlij</button>
-        <p class="hint">Okładka jest opcjonalna. Pozostałe pliki są wymagane.</p>
-      </form>
+      <h2>Zarządzanie biblioteką</h2>
+      <div class="admin-panels">
+        <form id="user-form" class="admin-card">
+          <h3>Dodaj użytkownika</h3>
+          <label>
+            Login
+            <input type="text" id="new-username" autocomplete="off" required />
+          </label>
+          <label>
+            Hasło
+            <input type="password" id="new-password" required />
+          </label>
+          <button type="submit">Utwórz użytkownika</button>
+          <p class="hint">Nowi użytkownicy otrzymują uprawnienia słuchacza.</p>
+        </form>
+        <form id="category-form" class="admin-card">
+          <h3>Dodaj kategorię</h3>
+          <label>
+            Nazwa kategorii
+            <input type="text" id="category-name" name="name" required />
+          </label>
+          <button type="submit">Zapisz kategorię</button>
+          <p class="hint">W każdej chwili możesz rozbudować bibliotekę o nowe kategorie.</p>
+        </form>
+        <form id="upload-form" class="admin-card" enctype="multipart/form-data">
+          <h3>Dodaj nowy audiobook</h3>
+          <label>
+            Tytuł
+            <input type="text" name="title" required />
+          </label>
+          <label>
+            Autor
+            <input type="text" name="author" required />
+          </label>
+          <label>
+            Kategoria
+            <select name="categoryId" id="audiobook-category"></select>
+          </label>
+          <label>
+            Tagi (opcjonalnie, oddzielone przecinkami)
+            <input type="text" name="tags" placeholder="np. Fantasy, Kryminał" />
+          </label>
+          <label>
+            Opis
+            <textarea name="description" rows="3" required></textarea>
+          </label>
+          <label>
+            Okładka (obraz, opcjonalnie)
+            <input type="file" name="coverImage" accept="image/*" />
+          </label>
+          <label>
+            Plik PDF
+            <input type="file" name="pdfFile" accept="application/pdf" required />
+          </label>
+          <label>
+            Nagrania audio
+            <input type="file" name="audioFiles" accept="audio/*" multiple required />
+          </label>
+          <button type="submit">Prześlij audiobook</button>
+          <div id="upload-status" class="upload-status hidden" aria-live="polite">
+            <div class="progress-track">
+              <div id="upload-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <p id="upload-progress-text" class="progress-text">Gotowy do przesyłania.</p>
+          </div>
+          <p class="hint">Możesz dodać wiele plików audio jako oddzielne rozdziały. Okładka jest opcjonalna.</p>
+        </form>
+        <section id="stats-card" class="admin-card" aria-live="polite">
+          <h3>Statystyki słuchania</h3>
+          <p class="hint">Podgląd aktywności użytkowników – kto czego słucha i jak długo.</p>
+          <div id="user-stats" class="stats-list">
+            <p id="user-stats-empty" class="stats-empty">Brak zapisanych postępów słuchania.</p>
+          </div>
+        </section>
+      </div>
     </section>
   </div>
 
@@ -70,11 +121,13 @@
       <div class="library-header">
         <div>
           <h2 id="library-title">Twoja biblioteka</h2>
-          <p id="library-subtitle" class="subtitle">Wybierz autora, aby zobaczyć jego audiobooki.</p>
+          <p id="library-subtitle" class="subtitle">Wybierz kategorię, aby zobaczyć dostępne audiobooki.</p>
         </div>
-        <button id="back-to-authors" class="secondary hidden" type="button">Wszyscy autorzy</button>
+        <div class="library-actions">
+          <button id="back-to-categories" class="secondary hidden" type="button">Wszystkie kategorie</button>
+        </div>
       </div>
-      <div id="author-list" class="author-grid"></div>
+      <div id="category-list" class="category-grid hidden"></div>
       <div id="library-list" class="library-grid hidden"></div>
       <p id="empty-library" class="hidden">Brak audiobooków. Administrator może dodać nowe pozycje.</p>
     </section>
@@ -85,13 +138,19 @@
         <p id="player-status">Wybierz audiobook, aby rozpocząć.</p>
       </div>
       <div class="player-body hidden" id="player-body">
-        <div class="player-cover placeholder" id="player-cover" aria-hidden="true"></div>
+        <div class="player-cover placeholder" id="player-cover" aria-hidden="true">
+          <img id="player-cover-image" alt="Okładka aktualnego audiobooka" />
+        </div>
         <div class="player-info">
           <h3 id="player-title"></h3>
           <p id="player-author" class="player-author"></p>
           <p id="player-description" class="player-description"></p>
         </div>
         <div class="player-controls">
+          <div class="chapter-row">
+            <label for="chapter-select">Rozdział</label>
+            <select id="chapter-select"></select>
+          </div>
           <div class="progress-row">
             <span id="current-time">00:00</span>
             <input type="range" id="player-progress" value="0" min="0" step="1" />
@@ -99,17 +158,7 @@
           </div>
           <div class="control-row">
             <button id="play-pause" class="primary" type="button">▶️</button>
-            <label class="speed-control">
-              Tempo
-              <select id="speed-select">
-                <option value="0.5">0.5x</option>
-                <option value="0.75">0.75x</option>
-                <option value="1" selected>1x</option>
-                <option value="1.25">1.25x</option>
-                <option value="1.5">1.5x</option>
-                <option value="2">2x</option>
-              </select>
-            </label>
+            <button id="speed-popup-btn" class="secondary" type="button">Tempo: <span id="speed-label">1x</span></button>
             <label class="volume-control">
               Głośność
               <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="1" />
@@ -117,35 +166,91 @@
           </div>
         </div>
         <audio id="player-audio"></audio>
+        <section id="reviews-section" class="reviews hidden" aria-live="polite">
+          <div class="reviews-header">
+            <h4>Oceny i recenzje</h4>
+            <p id="reviews-summary" class="reviews-summary"></p>
+          </div>
+          <form id="review-form" class="review-form">
+            <label>
+              Ocena
+              <select id="review-rating" required>
+                <option value="">Wybierz ocenę</option>
+                <option value="5">5 – Rewelacyjny</option>
+                <option value="4">4 – Bardzo dobry</option>
+                <option value="3">3 – Dobry</option>
+                <option value="2">2 – Średni</option>
+                <option value="1">1 – Słaby</option>
+              </select>
+            </label>
+            <label>
+              Recenzja (opcjonalnie)
+              <textarea id="review-comment" rows="3" maxlength="2000" placeholder="Podziel się wrażeniami..."></textarea>
+            </label>
+            <button type="submit" class="primary">Zapisz recenzję</button>
+            <p id="review-feedback" class="review-feedback" aria-live="polite"></p>
+          </form>
+          <p id="review-existing-message" class="review-existing hidden" aria-live="polite">Dodałeś już recenzję dla tego audiobooka.</p>
+          <div id="reviews-list" class="reviews-list"></div>
+          <p id="reviews-empty" class="reviews-empty">Brak recenzji. Dodaj pierwszą!</p>
+        </section>
       </div>
     </aside>
   </main>
 
-  <template id="author-card-template">
-    <button class="author-card" type="button">
-      <span class="author-name"></span>
-      <span class="author-count"></span>
-    </button>
+  <template id="category-card-template">
+    <div class="category-card">
+      <button class="category-select" type="button">
+        <span class="category-name"></span>
+        <span class="category-count"></span>
+      </button>
+      <button class="category-delete secondary" type="button">Usuń</button>
+    </div>
   </template>
 
   <template id="library-item-template">
     <article class="library-item" data-item-id="">
-      <div class="cover placeholder"></div>
+      <div class="cover placeholder">
+        <img class="cover-image" alt="Okładka audiobooka" loading="lazy" />
+      </div>
       <div class="content">
         <div class="item-header">
           <h3></h3>
+        <div class="item-actions">
+          <button class="secondary delete-btn hidden" type="button">Usuń</button>
           <button class="primary play-btn" type="button">Odtwórz</button>
         </div>
-        <p class="author-line">Autor: <button type="button" class="link author-link"></button></p>
-        <p class="description"></p>
-        <div class="links">
-          <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
-        </div>
       </div>
-    </article>
+      <p class="author-line">Autor: <span class="author-text"></span></p>
+      <p class="description"></p>
+      <ul class="tag-list" aria-label="Tagi"></ul>
+      <div class="links">
+        <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
+      </div>
+    </div>
+  </article>
   </template>
 
-  <footer class="site-footer">created by Yasoen</footer>
+  <div id="speed-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="speed-modal-title">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="speed-modal-title">Tempo odtwarzania</h3>
+        <button id="speed-modal-close" class="icon-button" type="button" aria-label="Zamknij">✕</button>
+      </div>
+      <p class="modal-description">Ustaw tempo ręcznie w zakresie od 0.5x do 2x.</p>
+      <div class="speed-options">
+        <label class="speed-range-label" for="speed-range">Suwak tempa</label>
+        <input type="range" id="speed-range" min="0.5" max="2" step="0.05" value="1" />
+        <div class="speed-manual">
+          <label for="speed-input">Wartość</label>
+          <input type="number" id="speed-input" min="0.5" max="2" step="0.05" value="1" />
+          <button id="speed-apply" class="primary" type="button">Zastosuj</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">Created By Yasoen</footer>
 
   <script src="app.js"></script>
 </body>
