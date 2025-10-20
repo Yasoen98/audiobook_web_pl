@@ -10,17 +10,541 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json');
+const CATEGORIES_FILE = path.join(DATA_DIR, 'categories.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const REVIEWS_FILE = path.join(DATA_DIR, 'reviews.json');
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-
-const USERS = {
-  admin: { password: 'admin123', role: 'admin' },
-  user: { password: 'user123', role: 'user' }
-};
 
 function ensureFile(filePath, defaultValue) {
   if (!fs.existsSync(filePath)) {
     fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2));
   }
+}
+
+function ensureUsersFile() {
+  if (!fs.existsSync(USERS_FILE)) {
+    const defaultUsers = {
+      admin: { password: 'admin123', role: 'admin' },
+      user: { password: 'user123', role: 'user' }
+    };
+    saveJson(USERS_FILE, defaultUsers);
+  }
+}
+
+function ensureReviewsFile() {
+  if (!fs.existsSync(REVIEWS_FILE)) {
+    saveJson(REVIEWS_FILE, {});
+  }
+}
+
+function loadUsers() {
+  const data = loadJson(USERS_FILE) || {};
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return {};
+  }
+  return data;
+}
+
+function saveUsers(users) {
+  saveJson(USERS_FILE, users);
+}
+
+function loadReviews() {
+  const data = loadJson(REVIEWS_FILE) || {};
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return {};
+  }
+  return data;
+}
+
+function saveReviews(reviews) {
+  saveJson(REVIEWS_FILE, reviews);
+}
+
+function clampRating(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  const clamped = Math.min(5, Math.max(1, value));
+  return Math.round(clamped * 2) / 2;
+}
+
+function normalizeTagsInput(input) {
+  if (Array.isArray(input)) {
+    return normalizeTagsInput(input.join(','));
+  }
+  if (typeof input !== 'string') {
+    return [];
+  }
+  const values = input
+    .split(/[,;\n]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const seen = new Set();
+  const tags = [];
+  values.forEach((tag) => {
+    const key = tag.toLocaleLowerCase('pl');
+    if (!seen.has(key)) {
+      seen.add(key);
+      tags.push(tag);
+    }
+  });
+
+  return tags;
+}
+
+function normalizeAuthorValue(author) {
+  if (typeof author !== 'string') {
+    return 'Nieznany autor';
+  }
+  const trimmed = author.trim();
+  return trimmed || 'Nieznany autor';
+}
+
+function createDefaultProgressState() {
+  return {
+    playbackSpeed: 1,
+    lastBookId: null,
+    items: {}
+  };
+}
+
+function clampPlaybackSpeed(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(2, Math.max(0.5, value));
+}
+
+function normalizeProgressEntry(entry) {
+  const normalized = createDefaultProgressState();
+
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    return normalized;
+  }
+
+  if (typeof entry.playbackSpeed === 'number') {
+    normalized.playbackSpeed = clampPlaybackSpeed(entry.playbackSpeed);
+  }
+
+  if (typeof entry.lastBookId === 'string' && entry.lastBookId.trim()) {
+    normalized.lastBookId = entry.lastBookId;
+  }
+
+  if (entry.items && typeof entry.items === 'object' && !Array.isArray(entry.items)) {
+    Object.keys(entry.items).forEach((itemId) => {
+      const itemEntry = entry.items[itemId];
+      if (!itemEntry || typeof itemEntry !== 'object') {
+        return;
+      }
+
+      const chapters = itemEntry.chapters && typeof itemEntry.chapters === 'object' ? itemEntry.chapters : {};
+      const safeChapters = {};
+      Object.keys(chapters).forEach((chapterId) => {
+        const timeValue = chapters[chapterId];
+        if (typeof timeValue === 'number' && Number.isFinite(timeValue) && timeValue >= 0) {
+          safeChapters[chapterId] = timeValue;
+        }
+      });
+
+      normalized.items[itemId] = {
+        lastChapterId:
+          typeof itemEntry.lastChapterId === 'string' && itemEntry.lastChapterId.trim()
+            ? itemEntry.lastChapterId
+            : null,
+        chapters: safeChapters
+      };
+    });
+  } else {
+    Object.keys(entry).forEach((key) => {
+      const value = entry[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+        normalized.items[key] = {
+          lastChapterId: `${key}-chapter-0`,
+          chapters: {
+            [`${key}-chapter-0`]: value
+          }
+        };
+      }
+    });
+  }
+
+  return normalized;
+}
+
+function normalizeLibraryItem(item) {
+  if (!item || typeof item !== 'object') {
+    return item;
+  }
+
+  const normalized = { ...item };
+
+  if (Array.isArray(normalized.tags)) {
+    normalized.tags = normalizeTagsInput(normalized.tags.join(','));
+  } else if (typeof normalized.tags === 'string') {
+    normalized.tags = normalizeTagsInput(normalized.tags);
+  } else {
+    normalized.tags = [];
+  }
+
+  if (Array.isArray(normalized.chapters) && normalized.chapters.length > 0) {
+    normalized.chapters = normalized.chapters.map((chapter, index) => ({
+      id: chapter && chapter.id ? chapter.id : `${normalized.id || 'item'}-chapter-${index}`,
+      name:
+        chapter && typeof chapter.name === 'string' && chapter.name.trim()
+          ? chapter.name
+          : `Rozdział ${index + 1}`,
+      url: chapter && chapter.url ? chapter.url : null
+    }));
+  } else if (normalized.audioUrl) {
+    normalized.chapters = [
+      {
+        id: `${normalized.id}-chapter-0`,
+        name: 'Rozdział 1',
+        url: normalized.audioUrl
+      }
+    ];
+  } else {
+    normalized.chapters = [];
+  }
+
+  return normalized;
+}
+
+function normalizeReviewEntries(list) {
+  if (!Array.isArray(list)) {
+    return { reviews: [], changed: !!list };
+  }
+
+  let changed = false;
+  const reviews = [];
+
+  list.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      changed = true;
+      return;
+    }
+
+    const rating = clampRating(Number(entry.rating));
+    if (rating === null) {
+      changed = true;
+      return;
+    }
+
+    const username =
+      typeof entry.username === 'string' && entry.username.trim()
+        ? entry.username.trim()
+        : 'Anonim';
+    const comment =
+      typeof entry.comment === 'string' && entry.comment.trim()
+        ? entry.comment.trim().slice(0, 2000)
+        : '';
+    const createdAt =
+      typeof entry.createdAt === 'string' && entry.createdAt.trim()
+        ? entry.createdAt
+        : new Date().toISOString();
+    const updatedAt =
+      typeof entry.updatedAt === 'string' && entry.updatedAt.trim()
+        ? entry.updatedAt
+        : createdAt;
+
+    if (
+      rating !== entry.rating ||
+      username !== entry.username ||
+      comment !== entry.comment ||
+      createdAt !== entry.createdAt ||
+      updatedAt !== entry.updatedAt
+    ) {
+      changed = true;
+    }
+
+    reviews.push({ username, rating, comment, createdAt, updatedAt });
+  });
+
+  return { reviews, changed };
+}
+
+function buildReviewSummary(audioId, reviewsData) {
+  if (!audioId) {
+    return { audioId: null, averageRating: null, totalReviews: 0, reviews: [] };
+  }
+
+  const entry = normalizeReviewEntries(reviewsData[audioId]);
+
+  if (entry.changed) {
+    reviewsData[audioId] = entry.reviews;
+    saveReviews(reviewsData);
+  }
+
+  const totalReviews = entry.reviews.length;
+  const sum = entry.reviews.reduce((acc, review) => acc + review.rating, 0);
+  const averageRating =
+    totalReviews > 0 ? Number((sum / totalReviews).toFixed(2)) : null;
+
+  return {
+    audioId,
+    averageRating,
+    totalReviews,
+    reviews: entry.reviews
+  };
+}
+
+function buildRecommendationsForUser(username) {
+  const libraryItems = (loadJson(LIBRARY_FILE) || []).map(normalizeLibraryItem);
+  if (!libraryItems.length) {
+    return [];
+  }
+
+  const progress = loadJson(PROGRESS_FILE) || {};
+  const entry = normalizeProgressEntry(progress[username]);
+  const reviewsData = loadReviews();
+  const categoriesList = loadJson(CATEGORIES_FILE) || [];
+  const categoryNameMap = new Map(
+    categoriesList.map((category) => [category.id, category.name])
+  );
+
+  const libraryMap = new Map(libraryItems.map((item) => [item.id, item]));
+  const listenedSeconds = new Map();
+  const categoryScores = new Map();
+  const authorScores = new Map();
+  const tagScores = new Map();
+
+  const addScore = (map, key, value) => {
+    if (!key || !Number.isFinite(value) || value <= 0) {
+      return;
+    }
+    map.set(key, (map.get(key) || 0) + value);
+  };
+
+  const progressItems =
+    entry.items && typeof entry.items === 'object' ? entry.items : {};
+
+  Object.keys(progressItems).forEach((audioId) => {
+    const itemProgress = progressItems[audioId];
+    if (!itemProgress || typeof itemProgress !== 'object') {
+      return;
+    }
+
+    const chapters =
+      itemProgress.chapters && typeof itemProgress.chapters === 'object'
+        ? itemProgress.chapters
+        : {};
+
+    let total = 0;
+    Object.keys(chapters).forEach((chapterId) => {
+      const value = chapters[chapterId];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        total += value;
+      }
+    });
+
+    if (total <= 0) {
+      return;
+    }
+
+    listenedSeconds.set(audioId, total);
+
+    const libraryItem = libraryMap.get(audioId);
+    if (!libraryItem) {
+      return;
+    }
+
+    const weight = total / 60; // minutes
+    const categoryKey = libraryItem.categoryId || '__uncategorized__';
+    addScore(categoryScores, categoryKey, weight);
+
+    const authorKey = normalizeAuthorValue(libraryItem.author).toLocaleLowerCase('pl');
+    addScore(authorScores, authorKey, weight);
+
+    if (Array.isArray(libraryItem.tags)) {
+      libraryItem.tags.forEach((tag) => {
+        addScore(tagScores, tag.toLocaleLowerCase('pl'), weight);
+      });
+    }
+  });
+
+  const userReviewRatings = new Map();
+  Object.keys(reviewsData).forEach((audioId) => {
+    const list = Array.isArray(reviewsData[audioId]) ? reviewsData[audioId] : [];
+    list.forEach((review) => {
+      if (!review || review.username !== username) {
+        return;
+      }
+      const rating = clampRating(Number(review.rating));
+      if (rating !== null) {
+        userReviewRatings.set(audioId, rating);
+      }
+    });
+  });
+
+  const candidates = libraryItems.map((item) => {
+    const summary = buildReviewSummary(item.id, reviewsData);
+    const listened = listenedSeconds.get(item.id) || 0;
+    const categoryKey = item.categoryId || '__uncategorized__';
+    const authorKey = normalizeAuthorValue(item.author).toLocaleLowerCase('pl');
+    const tagsLower = Array.isArray(item.tags)
+      ? item.tags.map((tag) => tag.toLocaleLowerCase('pl'))
+      : [];
+
+    const catScore = (categoryScores.get(categoryKey) || 0) * 0.6;
+    const authorScore = (authorScores.get(authorKey) || 0) * 0.5;
+    const tagScore = tagsLower.reduce(
+      (acc, tag) => acc + (tagScores.get(tag) || 0),
+      0
+    ) * 0.4;
+    const ratingScore = summary.averageRating
+      ? summary.averageRating * Math.min(summary.totalReviews || 0, 20)
+      : 0;
+    const explorationBoost = listened > 0 && listened < 180 ? 2 : 0;
+    const noveltyPenalty = listened >= 600 || userReviewRatings.has(item.id) ? 5 : 0;
+    const rawScore =
+      catScore + authorScore + tagScore + ratingScore + explorationBoost;
+    const score = rawScore - noveltyPenalty;
+
+    const reasonParts = [];
+    if (catScore > 0.1) {
+      const categoryName = categoryNameMap.get(item.categoryId) || 'Bez kategorii';
+      reasonParts.push(`kategorię ${categoryName}`);
+    }
+    if (authorScore > 0.1 && item.author) {
+      reasonParts.push(`autora ${normalizeAuthorValue(item.author)}`);
+    }
+    if (tagScore > 0.1 && item.tags && item.tags.length) {
+      reasonParts.push(`tag ${item.tags[0]}`);
+    }
+    if (summary.averageRating && summary.averageRating >= 4 && summary.totalReviews) {
+      reasonParts.push('wysokie oceny słuchaczy');
+    }
+
+    const reason = reasonParts.length
+      ? `Polecamy ze względu na ${reasonParts.join(', ')}.`
+      : 'Polecamy na podstawie Twojej historii słuchania.';
+
+    return {
+      audioId: item.id,
+      title: item.title,
+      author: item.author,
+      categoryId: item.categoryId || null,
+      categoryName: categoryNameMap.get(item.categoryId) || null,
+      tags: item.tags || [],
+      averageRating: summary.averageRating,
+      totalReviews: summary.totalReviews,
+      listened,
+      score,
+      reason
+    };
+  });
+
+  const filtered = candidates
+    .filter((candidate) => candidate.score > 0)
+    .filter((candidate) => candidate.listened < 600 || candidate.totalReviews > 0);
+
+  const sorted = (filtered.length ? filtered : candidates)
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return sorted.slice(0, 6).map((candidate) => ({
+    audioId: candidate.audioId,
+    title: candidate.title,
+    author: candidate.author,
+    categoryId: candidate.categoryId,
+    categoryName: candidate.categoryName,
+    tags: candidate.tags,
+    averageRating: candidate.averageRating,
+    totalReviews: candidate.totalReviews,
+    reason: candidate.reason
+  }));
+}
+
+function buildListeningStats() {
+  const users = loadUsers();
+  const progress = loadJson(PROGRESS_FILE) || {};
+  const libraryItems = (loadJson(LIBRARY_FILE) || []).map(normalizeLibraryItem);
+  const libraryMap = new Map(libraryItems.map((item) => [item.id, item]));
+
+  const stats = Object.keys(users).map((username) => {
+    const entry = normalizeProgressEntry(progress[username]);
+    const items = [];
+    let totalSeconds = 0;
+
+    const progressItems = entry.items && typeof entry.items === 'object' ? entry.items : {};
+
+    Object.keys(progressItems).forEach((audioId) => {
+      const itemProgress = progressItems[audioId];
+      if (!itemProgress || typeof itemProgress !== 'object') {
+        return;
+      }
+
+      const chapters =
+        itemProgress.chapters && typeof itemProgress.chapters === 'object'
+          ? itemProgress.chapters
+          : {};
+
+      let accumulated = 0;
+      Object.keys(chapters).forEach((chapterId) => {
+        const value = chapters[chapterId];
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+          accumulated += value;
+        }
+      });
+
+      totalSeconds += accumulated;
+
+      let lastChapterId =
+        typeof itemProgress.lastChapterId === 'string' && itemProgress.lastChapterId.trim()
+          ? itemProgress.lastChapterId
+          : null;
+
+      if (!lastChapterId) {
+        const chapterIds = Object.keys(chapters);
+        if (chapterIds.length) {
+          lastChapterId = chapterIds[0];
+        }
+      }
+
+      const libraryItem = libraryMap.get(audioId);
+      let lastChapterName = null;
+      if (libraryItem && Array.isArray(libraryItem.chapters)) {
+        const foundChapter = libraryItem.chapters.find((chapter) => chapter.id === lastChapterId);
+        if (foundChapter) {
+          lastChapterName = foundChapter.name;
+        }
+      }
+
+      const lastPositionSeconds =
+        lastChapterId && typeof chapters[lastChapterId] === 'number'
+          ? Math.max(0, chapters[lastChapterId])
+          : 0;
+
+      items.push({
+        audioId,
+        title: libraryItem ? libraryItem.title : 'Usunięty audiobook',
+        author: libraryItem ? libraryItem.author : null,
+        lastChapterId: lastChapterId || null,
+        lastChapterName,
+        lastPositionSeconds,
+        totalSeconds: accumulated
+      });
+    });
+
+    items.sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
+
+    const currentItem =
+      entry.lastBookId && items.find((item) => item.audioId === entry.lastBookId);
+
+    return {
+      username,
+      role: users[username].role || 'user',
+      totalSeconds,
+      currentBookId: entry.lastBookId || null,
+      current: currentItem || null,
+      items
+    };
+  });
+
+  stats.sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
+  return stats;
 }
 
 function loadJson(filePath) {
@@ -35,6 +559,29 @@ function loadJson(filePath) {
 
 function saveJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+function removeFileByUrl(urlPath) {
+  if (!urlPath || typeof urlPath !== 'string') {
+    return;
+  }
+
+  const sanitized = urlPath.replace(/^\/+/, '');
+  const absolutePath = path.normalize(path.join(__dirname, '..', sanitized));
+  const uploadsRoot = path.normalize(path.join(__dirname, '..', 'uploads'));
+  const relative = path.relative(uploadsRoot, absolutePath);
+
+  if (relative.startsWith('..')) {
+    return;
+  }
+
+  try {
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    }
+  } catch (error) {
+    console.warn(`Nie udało się usunąć pliku ${absolutePath}:`, error.message);
+  }
 }
 
 function ensureDirectories() {
@@ -54,6 +601,9 @@ function ensureDirectories() {
 ensureDirectories();
 ensureFile(LIBRARY_FILE, []);
 ensureFile(PROGRESS_FILE, {});
+ensureFile(CATEGORIES_FILE, []);
+ensureUsersFile();
+ensureReviewsFile();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -71,7 +621,7 @@ const storage = multer.diskStorage({
       cb(null, path.join(UPLOAD_DIR, 'images'));
     } else if (file.fieldname === 'pdfFile') {
       cb(null, path.join(UPLOAD_DIR, 'pdfs'));
-    } else if (file.fieldname === 'audioFile') {
+    } else if (file.fieldname === 'audioFiles') {
       cb(null, path.join(UPLOAD_DIR, 'audio'));
     } else {
       cb(null, UPLOAD_DIR);
@@ -101,21 +651,51 @@ function requireAdmin(req, res, next) {
 }
 
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = USERS[username];
+  const { username, password } = req.body || {};
+  const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+  const normalizedPassword = typeof password === 'string' ? password.trim() : '';
 
-  if (!user || user.password !== password) {
+  if (!normalizedUsername || !normalizedPassword) {
+    return res
+      .status(400)
+      .json({ message: 'Login i hasło są wymagane, aby się zalogować.' });
+  }
+
+  const users = loadUsers();
+  const user = users[normalizedUsername];
+
+  if (!user || user.password !== normalizedPassword) {
     return res.status(401).json({ message: 'Nieprawidłowe dane logowania.' });
   }
 
-  req.session.user = { username, role: user.role };
-  res.json({ username, role: user.role });
+  req.session.user = { username: normalizedUsername, role: user.role };
+  res.json({ username: normalizedUsername, role: user.role });
 });
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy(() => {
     res.json({ message: 'Wylogowano.' });
   });
+});
+
+app.post('/api/users', requireAdmin, (req, res) => {
+  const { username, password } = req.body || {};
+  const trimmedUsername = typeof username === 'string' ? username.trim() : '';
+  const trimmedPassword = typeof password === 'string' ? password.trim() : '';
+
+  if (!trimmedUsername || !trimmedPassword) {
+    return res.status(400).json({ message: 'Login i hasło są wymagane.' });
+  }
+
+  const users = loadUsers();
+  if (users[trimmedUsername]) {
+    return res.status(409).json({ message: 'Użytkownik o podanej nazwie już istnieje.' });
+  }
+
+  users[trimmedUsername] = { password: trimmedPassword, role: 'user' };
+  saveUsers(users);
+
+  res.status(201).json({ username: trimmedUsername, role: 'user' });
 });
 
 app.get('/api/session', (req, res) => {
@@ -125,67 +705,370 @@ app.get('/api/session', (req, res) => {
   res.status(204).send();
 });
 
+app.get('/api/categories', requireAuth, (req, res) => {
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  res.json(categories);
+});
+
+app.post('/api/categories', requireAdmin, (req, res) => {
+  const { name } = req.body || {};
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+
+  if (!trimmed) {
+    return res.status(400).json({ message: 'Nazwa kategorii jest wymagana.' });
+  }
+
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  const exists = categories.some(
+    (category) => category.name.toLowerCase() === trimmed.toLowerCase()
+  );
+
+  if (exists) {
+    return res
+      .status(409)
+      .json({ message: 'Kategoria o tej nazwie już istnieje.' });
+  }
+
+  const newCategory = {
+    id: `category-${Date.now()}`,
+    name: trimmed,
+    type: 'custom'
+  };
+
+  categories.push(newCategory);
+  saveJson(CATEGORIES_FILE, categories);
+
+  res.status(201).json(newCategory);
+});
+
+app.delete('/api/categories/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const categories = loadJson(CATEGORIES_FILE) || [];
+  const index = categories.findIndex((category) => category.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: 'Nie znaleziono kategorii.' });
+  }
+
+  categories.splice(index, 1);
+  saveJson(CATEGORIES_FILE, categories);
+
+  const library = loadJson(LIBRARY_FILE) || [];
+  let libraryUpdated = false;
+  const updatedLibrary = library.map((item) => {
+    if (item.categoryId === id) {
+      libraryUpdated = true;
+      return { ...item, categoryId: null };
+    }
+    return item;
+  });
+
+  if (libraryUpdated) {
+    saveJson(LIBRARY_FILE, updatedLibrary);
+  }
+
+  res.json({ message: 'Kategoria została usunięta.' });
+});
+
+app.get('/api/admin/stats', requireAdmin, (req, res) => {
+  const stats = buildListeningStats();
+  res.json(stats);
+});
+
 app.get('/api/library', requireAuth, (req, res) => {
-  const items = loadJson(LIBRARY_FILE) || [];
+  const items = (loadJson(LIBRARY_FILE) || []).map((item) => {
+    const normalized = normalizeLibraryItem(item);
+    return {
+      ...normalized,
+      categoryId: normalized.categoryId || null
+    };
+  });
   res.json(items);
 });
 
-app.post('/api/library', requireAdmin, upload.fields([
-  { name: 'coverImage', maxCount: 1 },
-  { name: 'pdfFile', maxCount: 1 },
-  { name: 'audioFile', maxCount: 1 }
-]), (req, res) => {
-  const { title, description, author } = req.body;
-  const files = req.files || {};
+app.post(
+  '/api/library',
+  requireAdmin,
+  upload.fields([
+    { name: 'coverImage', maxCount: 1 },
+    { name: 'pdfFile', maxCount: 1 },
+    { name: 'audioFiles', maxCount: 150 }
+  ]),
+  (req, res) => {
+    const { title, description, author, tags: rawTags } = req.body;
+    let { categoryId } = req.body;
+    const files = req.files || {};
 
-  if (!title || !description || !author) {
-    return res.status(400).json({ message: 'Tytuł, autor i opis są wymagane.' });
+    if (!title || !description || !author) {
+      return res.status(400).json({ message: 'Tytuł, autor i opis są wymagane.' });
+    }
+
+    if (!files.pdfFile || !files.audioFiles || !files.audioFiles.length) {
+      return res.status(400).json({ message: 'Pliki PDF i audio są wymagane.' });
+    }
+
+    const categories = loadJson(CATEGORIES_FILE) || [];
+    if (categoryId) {
+      categoryId = categoryId.trim();
+      if (!categories.some((category) => category.id === categoryId)) {
+        return res.status(400).json({ message: 'Wybrana kategoria nie istnieje.' });
+      }
+    } else {
+      categoryId = null;
+    }
+
+    const library = loadJson(LIBRARY_FILE) || [];
+    const id = `item-${Date.now()}`;
+    const tags = normalizeTagsInput(rawTags);
+
+    const chapters = files.audioFiles
+      .map((file, index) => ({
+        id: `${id}-chapter-${index}`,
+        name: file.originalname
+          ? path.parse(file.originalname).name || `Rozdział ${index + 1}`
+          : `Rozdział ${index + 1}`,
+        url: `/uploads/audio/${file.filename}`
+      }))
+      .filter((chapter) => !!chapter.url);
+
+    const newItem = {
+      id,
+      title: title.trim(),
+      description: description.trim(),
+      author: author.trim(),
+      categoryId,
+      tags,
+      imageUrl: files.coverImage
+        ? `/uploads/images/${files.coverImage[0].filename}`
+        : null,
+      pdfUrl: `/uploads/pdfs/${files.pdfFile[0].filename}`,
+      chapters
+    };
+
+    library.push(newItem);
+    saveJson(LIBRARY_FILE, library);
+
+    res.status(201).json(newItem);
+  }
+);
+
+app.delete('/api/library/:id', requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const library = loadJson(LIBRARY_FILE) || [];
+  const index = library.findIndex((item) => item.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: 'Nie znaleziono audiobooka.' });
   }
 
-  if (!files.pdfFile || !files.audioFile) {
-    return res.status(400).json({ message: 'Pliki PDF i audio są wymagane.' });
+  const [removedItem] = library.splice(index, 1);
+  saveJson(LIBRARY_FILE, library);
+
+  ['imageUrl', 'pdfUrl'].forEach((key) => removeFileByUrl(removedItem[key]));
+  if (Array.isArray(removedItem.chapters)) {
+    removedItem.chapters.forEach((chapter) => {
+      if (chapter && chapter.url) {
+        removeFileByUrl(chapter.url);
+      }
+    });
+  } else if (removedItem.audioUrl) {
+    removeFileByUrl(removedItem.audioUrl);
+  }
+
+  const progress = loadJson(PROGRESS_FILE) || {};
+  let progressUpdated = false;
+
+  Object.keys(progress).forEach((username) => {
+    const entry = normalizeProgressEntry(progress[username]);
+    if (entry.items && entry.items[id]) {
+      delete entry.items[id];
+      if (entry.lastBookId === id) {
+        entry.lastBookId = null;
+      }
+      progress[username] = entry;
+      progressUpdated = true;
+    }
+  });
+
+  if (progressUpdated) {
+    saveJson(PROGRESS_FILE, progress);
+  }
+
+  const reviewsData = loadReviews();
+  if (reviewsData && typeof reviewsData === 'object' && reviewsData[id]) {
+    delete reviewsData[id];
+    saveReviews(reviewsData);
+  }
+
+  res.json({ message: 'Audiobook został usunięty.' });
+});
+
+app.get('/api/reviews/:audioId', requireAuth, (req, res) => {
+  const { audioId } = req.params;
+  const trimmed = typeof audioId === 'string' ? audioId.trim() : '';
+
+  if (!trimmed) {
+    return res.status(400).json({ message: 'Identyfikator audiobooka jest wymagany.' });
+  }
+
+  const reviewsData = loadReviews();
+  const summary = buildReviewSummary(trimmed, reviewsData);
+  res.json(summary);
+});
+
+app.post('/api/reviews', requireAuth, (req, res) => {
+  const { audioId, rating, comment } = req.body || {};
+  const normalizedId = typeof audioId === 'string' ? audioId.trim() : '';
+
+  if (!normalizedId) {
+    return res.status(400).json({ message: 'Identyfikator audiobooka jest wymagany.' });
+  }
+
+  const numericRating = clampRating(Number(rating));
+  if (numericRating === null) {
+    return res.status(400).json({ message: 'Ocena musi być liczbą w zakresie 1-5.' });
   }
 
   const library = loadJson(LIBRARY_FILE) || [];
-  const id = `item-${Date.now()}`;
+  const exists = library.some((item) => item && item.id === normalizedId);
+  if (!exists) {
+    return res.status(404).json({ message: 'Nie znaleziono wskazanego audiobooka.' });
+  }
 
-  const newItem = {
-    id,
-    title: title.trim(),
-    description: description.trim(),
-    author: author.trim(),
-    imageUrl: files.coverImage ? `/uploads/images/${files.coverImage[0].filename}` : null,
-    pdfUrl: `/uploads/pdfs/${files.pdfFile[0].filename}`,
-    audioUrl: `/uploads/audio/${files.audioFile[0].filename}`
-  };
+  const trimmedComment =
+    typeof comment === 'string' && comment.trim()
+      ? comment.trim().slice(0, 2000)
+      : '';
 
-  library.push(newItem);
-  saveJson(LIBRARY_FILE, library);
+  const username = req.session.user.username;
+  const now = new Date().toISOString();
+  const reviewsData = loadReviews();
+  const list = Array.isArray(reviewsData[normalizedId])
+    ? reviewsData[normalizedId]
+    : [];
 
-  res.status(201).json(newItem);
+  const existingIndex = list.findIndex(
+    (review) => review && review.username === username
+  );
+
+  if (existingIndex !== -1) {
+    const previous = list[existingIndex] || {};
+    list[existingIndex] = {
+      username,
+      rating: numericRating,
+      comment: trimmedComment,
+      createdAt:
+        typeof previous.createdAt === 'string' && previous.createdAt.trim()
+          ? previous.createdAt
+          : now,
+      updatedAt: now
+    };
+  } else {
+    list.push({
+      username,
+      rating: numericRating,
+      comment: trimmedComment,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  reviewsData[normalizedId] = list;
+  saveReviews(reviewsData);
+
+  const summary = buildReviewSummary(normalizedId, reviewsData);
+  res.json(summary);
+});
+
+app.get('/api/recommendations', requireAuth, (req, res) => {
+  const username = req.session.user.username;
+  const recommendations = buildRecommendationsForUser(username);
+  res.json(recommendations);
+});
+
+app.get('/api/progress', requireAuth, (req, res) => {
+  const username = req.session.user.username;
+  const progress = loadJson(PROGRESS_FILE) || {};
+  const entry = normalizeProgressEntry(progress[username]);
+  progress[username] = entry;
+  saveJson(PROGRESS_FILE, progress);
+  res.json(entry);
 });
 
 app.get('/api/progress/:audioId', requireAuth, (req, res) => {
   const { audioId } = req.params;
+  const username = req.session.user.username;
   const progress = loadJson(PROGRESS_FILE) || {};
-  const userProgress = progress[req.session.user.username] || {};
-  const time = userProgress[audioId] || 0;
+  const entry = normalizeProgressEntry(progress[username]);
+  const itemEntry = entry.items[audioId];
+  const chapterId = itemEntry && itemEntry.lastChapterId;
+  const time =
+    chapterId && itemEntry.chapters && typeof itemEntry.chapters[chapterId] === 'number'
+      ? itemEntry.chapters[chapterId]
+      : 0;
   res.json({ time });
 });
 
 app.post('/api/progress', requireAuth, (req, res) => {
-  const { audioId, time } = req.body;
-
-  if (!audioId || typeof time !== 'number') {
-    return res.status(400).json({ message: 'Niepoprawne dane postępu.' });
-  }
-
+  const { audioId, chapterId, time, playbackSpeed, lastBookId, lastChapterId } = req.body || {};
+  const username = req.session.user.username;
   const progress = loadJson(PROGRESS_FILE) || {};
-  if (!progress[req.session.user.username]) {
-    progress[req.session.user.username] = {};
+  const entry = normalizeProgressEntry(progress[username]);
+
+  let updated = false;
+
+  if (typeof playbackSpeed === 'number' && Number.isFinite(playbackSpeed)) {
+    const clamped = clampPlaybackSpeed(playbackSpeed);
+    if (clamped !== entry.playbackSpeed) {
+      entry.playbackSpeed = clamped;
+      updated = true;
+    }
   }
-  progress[req.session.user.username][audioId] = time;
-  saveJson(PROGRESS_FILE, progress);
+
+  if (typeof lastBookId === 'string' && lastBookId.trim()) {
+    if (entry.lastBookId !== lastBookId) {
+      entry.lastBookId = lastBookId;
+      updated = true;
+    }
+  }
+
+  if (typeof audioId === 'string' && audioId.trim()) {
+    if (!entry.items[audioId]) {
+      entry.items[audioId] = { lastChapterId: null, chapters: {} };
+      updated = true;
+    }
+
+    if (
+      typeof lastChapterId === 'string' &&
+      lastChapterId.trim() &&
+      entry.items[audioId].lastChapterId !== lastChapterId
+    ) {
+      entry.items[audioId].lastChapterId = lastChapterId;
+      updated = true;
+    }
+
+    if (
+      typeof chapterId === 'string' &&
+      chapterId.trim() &&
+      typeof time === 'number' &&
+      Number.isFinite(time) &&
+      time >= 0
+    ) {
+      if (!entry.items[audioId].chapters) {
+        entry.items[audioId].chapters = {};
+      }
+      entry.items[audioId].chapters[chapterId] = time;
+      entry.items[audioId].lastChapterId = chapterId;
+      updated = true;
+    }
+  }
+
+  progress[username] = entry;
+
+  if (updated) {
+    saveJson(PROGRESS_FILE, progress);
+  }
+
   res.json({ message: 'Postęp zapisany.' });
 });
 
