@@ -93,7 +93,16 @@ let recommendationsData = [];
 let recommendationsRefreshTimeout = null;
 
 async function apiRequest(url, options = {}) {
-  const response = await fetch(url, options);
+  const config = {
+    credentials: 'include',
+    ...options,
+    headers: {
+      Accept: 'application/json',
+      ...(options.headers || {})
+    }
+  };
+
+  const response = await fetch(url, config);
   if (!response.ok) {
     const message = await extractErrorMessage(response);
     throw new Error(message);
@@ -1582,7 +1591,6 @@ function renderRecommendations(list) {
     recommendationsEmpty.classList.remove('hidden');
     return;
   }
-}
 
   recommendationsList.classList.remove('hidden');
   recommendationsEmpty.classList.add('hidden');
@@ -1773,8 +1781,6 @@ async function loadTrack(item, options = {}) {
 
   updateChapterSelect(chapters, selectedChapter.id);
 
-  updateChapterSelect(chapters, selectedChapter.id);
-
   audioElement.pause();
   audioElement.currentTime = 0;
   audioElement.src = selectedChapter.url;
@@ -1925,19 +1931,33 @@ async function saveProgressState(update = {}) {
 
 loginForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
+
+  if (!username || !password) {
+    alert('Podaj login oraz hasło, aby się zalogować.');
+    if (!username) {
+      usernameInput.focus();
+    } else {
+      passwordInput.focus();
+    }
+    return;
+  }
+
   try {
     const user = await apiRequest('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: usernameInput.value.trim(),
-        password: passwordInput.value.trim()
-      })
+      body: JSON.stringify({ username, password })
     });
     loginForm.reset();
     await setLoggedIn(user);
   } catch (error) {
-    alert(`Logowanie nie powiodło się: ${error.message}`);
+    const message =
+      error.message && error.message.trim()
+        ? error.message
+        : 'Nie udało się nawiązać połączenia z serwerem.';
+    alert(`Logowanie nie powiodło się: ${message}`);
   }
 });
 

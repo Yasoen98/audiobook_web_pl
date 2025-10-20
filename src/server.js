@@ -651,16 +651,25 @@ function requireAdmin(req, res, next) {
 }
 
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  const users = loadUsers();
-  const user = users[username];
+  const { username, password } = req.body || {};
+  const normalizedUsername = typeof username === 'string' ? username.trim() : '';
+  const normalizedPassword = typeof password === 'string' ? password.trim() : '';
 
-  if (!user || user.password !== password) {
+  if (!normalizedUsername || !normalizedPassword) {
+    return res
+      .status(400)
+      .json({ message: 'Login i hasło są wymagane, aby się zalogować.' });
+  }
+
+  const users = loadUsers();
+  const user = users[normalizedUsername];
+
+  if (!user || user.password !== normalizedPassword) {
     return res.status(401).json({ message: 'Nieprawidłowe dane logowania.' });
   }
 
-  req.session.user = { username, role: user.role };
-  res.json({ username, role: user.role });
+  req.session.user = { username: normalizedUsername, role: user.role };
+  res.json({ username: normalizedUsername, role: user.role });
 });
 
 app.post('/api/logout', (req, res) => {
