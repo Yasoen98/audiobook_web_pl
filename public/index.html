@@ -77,6 +77,10 @@
             <select name="categoryId" id="audiobook-category"></select>
           </label>
           <label>
+            Tagi (opcjonalnie, oddzielone przecinkami)
+            <input type="text" name="tags" placeholder="np. Fantasy, Kryminał" />
+          </label>
+          <label>
             Opis
             <textarea name="description" rows="3" required></textarea>
           </label>
@@ -123,9 +127,36 @@
           <button id="back-to-categories" class="secondary hidden" type="button">Wszystkie kategorie</button>
         </div>
       </div>
+      <div id="library-filters" class="library-filters hidden">
+        <label class="filter-item" for="library-search">
+          <span class="filter-label">Szukaj</span>
+          <input type="search" id="library-search" placeholder="Wyszukaj tytuł, autora lub tag" autocomplete="off" />
+        </label>
+        <label class="filter-item" for="filter-author">
+          <span class="filter-label">Autor</span>
+          <select id="filter-author"></select>
+        </label>
+        <label class="filter-item" for="filter-category">
+          <span class="filter-label">Kategoria</span>
+          <select id="filter-category"></select>
+        </label>
+        <label class="filter-item" for="filter-tag">
+          <span class="filter-label">Tag</span>
+          <select id="filter-tag"></select>
+        </label>
+        <button id="filters-clear" class="secondary" type="button">Wyczyść filtry</button>
+      </div>
       <div id="category-list" class="category-grid hidden"></div>
       <div id="library-list" class="library-grid hidden"></div>
       <p id="empty-library" class="hidden">Brak audiobooków. Administrator może dodać nowe pozycje.</p>
+      <section id="recommendations-section" class="recommendations hidden" aria-live="polite">
+        <div class="recommendations-header">
+          <h3>Polecane dla Ciebie</h3>
+          <p class="subtitle">Na podstawie historii słuchania i ocen społeczności.</p>
+        </div>
+        <div id="recommendations-list" class="recommendations-list"></div>
+        <p id="recommendations-empty" class="recommendations-empty">Brak rekomendacji. Słuchaj i oceniaj audiobooki, aby otrzymać propozycje.</p>
+      </section>
     </section>
 
     <aside id="player-panel" class="player hidden">
@@ -162,6 +193,33 @@
           </div>
         </div>
         <audio id="player-audio"></audio>
+        <section id="reviews-section" class="reviews hidden" aria-live="polite">
+          <div class="reviews-header">
+            <h4>Oceny i recenzje</h4>
+            <p id="reviews-summary" class="reviews-summary"></p>
+          </div>
+          <form id="review-form" class="review-form">
+            <label>
+              Ocena
+              <select id="review-rating" required>
+                <option value="">Wybierz ocenę</option>
+                <option value="5">5 – Rewelacyjny</option>
+                <option value="4">4 – Bardzo dobry</option>
+                <option value="3">3 – Dobry</option>
+                <option value="2">2 – Średni</option>
+                <option value="1">1 – Słaby</option>
+              </select>
+            </label>
+            <label>
+              Recenzja (opcjonalnie)
+              <textarea id="review-comment" rows="3" maxlength="2000" placeholder="Podziel się wrażeniami..."></textarea>
+            </label>
+            <button type="submit" class="primary">Zapisz recenzję</button>
+            <p id="review-feedback" class="review-feedback" aria-live="polite"></p>
+          </form>
+          <div id="reviews-list" class="reviews-list"></div>
+          <p id="reviews-empty" class="reviews-empty">Brak recenzji. Dodaj pierwszą!</p>
+        </section>
       </div>
     </aside>
   </main>
@@ -184,18 +242,19 @@
       <div class="content">
         <div class="item-header">
           <h3></h3>
-          <div class="item-actions">
-            <button class="secondary delete-btn hidden" type="button">Usuń</button>
-            <button class="primary play-btn" type="button">Odtwórz</button>
-          </div>
-        </div>
-        <p class="author-line">Autor: <span class="author-text"></span></p>
-        <p class="description"></p>
-        <div class="links">
-          <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
+        <div class="item-actions">
+          <button class="secondary delete-btn hidden" type="button">Usuń</button>
+          <button class="primary play-btn" type="button">Odtwórz</button>
         </div>
       </div>
-    </article>
+      <p class="author-line">Autor: <span class="author-text"></span></p>
+      <p class="description"></p>
+      <ul class="tag-list" aria-label="Tagi"></ul>
+      <div class="links">
+        <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
+      </div>
+    </div>
+  </article>
   </template>
 
   <div id="speed-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="speed-modal-title">

@@ -12,6 +12,7 @@ const LIBRARY_FILE = path.join(DATA_DIR, 'library.json');
 const PROGRESS_FILE = path.join(DATA_DIR, 'progress.json');
 const CATEGORIES_FILE = path.join(DATA_DIR, 'categories.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const REVIEWS_FILE = path.join(DATA_DIR, 'reviews.json');
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 
 function ensureFile(filePath, defaultValue) {
@@ -30,6 +31,12 @@ function ensureUsersFile() {
   }
 }
 
+function ensureReviewsFile() {
+  if (!fs.existsSync(REVIEWS_FILE)) {
+    saveJson(REVIEWS_FILE, {});
+  }
+}
+
 function loadUsers() {
   const data = loadJson(USERS_FILE) || {};
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -40,6 +47,59 @@ function loadUsers() {
 
 function saveUsers(users) {
   saveJson(USERS_FILE, users);
+}
+
+function loadReviews() {
+  const data = loadJson(REVIEWS_FILE) || {};
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return {};
+  }
+  return data;
+}
+
+function saveReviews(reviews) {
+  saveJson(REVIEWS_FILE, reviews);
+}
+
+function clampRating(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  const clamped = Math.min(5, Math.max(1, value));
+  return Math.round(clamped * 2) / 2;
+}
+
+function normalizeTagsInput(input) {
+  if (Array.isArray(input)) {
+    return normalizeTagsInput(input.join(','));
+  }
+  if (typeof input !== 'string') {
+    return [];
+  }
+  const values = input
+    .split(/[,;\n]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const seen = new Set();
+  const tags = [];
+  values.forEach((tag) => {
+    const key = tag.toLocaleLowerCase('pl');
+    if (!seen.has(key)) {
+      seen.add(key);
+      tags.push(tag);
+    }
+  });
+
+  return tags;
+}
+
+function normalizeAuthorValue(author) {
+  if (typeof author !== 'string') {
+    return 'Nieznany autor';
+  }
+  const trimmed = author.trim();
+  return trimmed || 'Nieznany autor';
 }
 
 function createDefaultProgressState() {
@@ -120,6 +180,14 @@ function normalizeLibraryItem(item) {
 
   const normalized = { ...item };
 
+  if (Array.isArray(normalized.tags)) {
+    normalized.tags = normalizeTagsInput(normalized.tags.join(','));
+  } else if (typeof normalized.tags === 'string') {
+    normalized.tags = normalizeTagsInput(normalized.tags);
+  } else {
+    normalized.tags = [];
+  }
+
   if (Array.isArray(normalized.chapters) && normalized.chapters.length > 0) {
     normalized.chapters = normalized.chapters.map((chapter, index) => ({
       id: chapter && chapter.id ? chapter.id : `${normalized.id || 'item'}-chapter-${index}`,
@@ -142,6 +210,251 @@ function normalizeLibraryItem(item) {
   }
 
   return normalized;
+}
+
+function normalizeReviewEntries(list) {
+  if (!Array.isArray(list)) {
+    return { reviews: [], changed: !!list };
+  }
+
+  let changed = false;
+  const reviews = [];
+
+  list.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      changed = true;
+      return;
+    }
+
+    const rating = clampRating(Number(entry.rating));
+    if (rating === null) {
+      changed = true;
+      return;
+    }
+
+    const username =
+      typeof entry.username === 'string' && entry.username.trim()
+        ? entry.username.trim()
+        : 'Anonim';
+    const comment =
+      typeof entry.comment === 'string' && entry.comment.trim()
+        ? entry.comment.trim().slice(0, 2000)
+        : '';
+    const createdAt =
+      typeof entry.createdAt === 'string' && entry.createdAt.trim()
+        ? entry.createdAt
+        : new Date().toISOString();
+    const updatedAt =
+      typeof entry.updatedAt === 'string' && entry.updatedAt.trim()
+        ? entry.updatedAt
+        : createdAt;
+
+    if (
+      rating !== entry.rating ||
+      username !== entry.username ||
+      comment !== entry.comment ||
+      createdAt !== entry.createdAt ||
+      updatedAt !== entry.updatedAt
+    ) {
+      changed = true;
+    }
+
+    reviews.push({ username, rating, comment, createdAt, updatedAt });
+  });
+
+  return { reviews, changed };
+}
+
+function buildReviewSummary(audioId, reviewsData) {
+  if (!audioId) {
+    return { audioId: null, averageRating: null, totalReviews: 0, reviews: [] };
+  }
+
+  const entry = normalizeReviewEntries(reviewsData[audioId]);
+
+  if (entry.changed) {
+    reviewsData[audioId] = entry.reviews;
+    saveReviews(reviewsData);
+  }
+
+  const totalReviews = entry.reviews.length;
+  const sum = entry.reviews.reduce((acc, review) => acc + review.rating, 0);
+  const averageRating =
+    totalReviews > 0 ? Number((sum / totalReviews).toFixed(2)) : null;
+
+  return {
+    audioId,
+    averageRating,
+    totalReviews,
+    reviews: entry.reviews
+  };
+}
+
+function buildRecommendationsForUser(username) {
+  const libraryItems = (loadJson(LIBRARY_FILE) || []).map(normalizeLibraryItem);
+  if (!libraryItems.length) {
+    return [];
+  }
+
+  const progress = loadJson(PROGRESS_FILE) || {};
+  const entry = normalizeProgressEntry(progress[username]);
+  const reviewsData = loadReviews();
+  const categoriesList = loadJson(CATEGORIES_FILE) || [];
+  const categoryNameMap = new Map(
+    categoriesList.map((category) => [category.id, category.name])
+  );
+
+  const libraryMap = new Map(libraryItems.map((item) => [item.id, item]));
+  const listenedSeconds = new Map();
+  const categoryScores = new Map();
+  const authorScores = new Map();
+  const tagScores = new Map();
+
+  const addScore = (map, key, value) => {
+    if (!key || !Number.isFinite(value) || value <= 0) {
+      return;
+    }
+    map.set(key, (map.get(key) || 0) + value);
+  };
+
+  const progressItems =
+    entry.items && typeof entry.items === 'object' ? entry.items : {};
+
+  Object.keys(progressItems).forEach((audioId) => {
+    const itemProgress = progressItems[audioId];
+    if (!itemProgress || typeof itemProgress !== 'object') {
+      return;
+    }
+
+    const chapters =
+      itemProgress.chapters && typeof itemProgress.chapters === 'object'
+        ? itemProgress.chapters
+        : {};
+
+    let total = 0;
+    Object.keys(chapters).forEach((chapterId) => {
+      const value = chapters[chapterId];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        total += value;
+      }
+    });
+
+    if (total <= 0) {
+      return;
+    }
+
+    listenedSeconds.set(audioId, total);
+
+    const libraryItem = libraryMap.get(audioId);
+    if (!libraryItem) {
+      return;
+    }
+
+    const weight = total / 60; // minutes
+    const categoryKey = libraryItem.categoryId || '__uncategorized__';
+    addScore(categoryScores, categoryKey, weight);
+
+    const authorKey = normalizeAuthorValue(libraryItem.author).toLocaleLowerCase('pl');
+    addScore(authorScores, authorKey, weight);
+
+    if (Array.isArray(libraryItem.tags)) {
+      libraryItem.tags.forEach((tag) => {
+        addScore(tagScores, tag.toLocaleLowerCase('pl'), weight);
+      });
+    }
+  });
+
+  const userReviewRatings = new Map();
+  Object.keys(reviewsData).forEach((audioId) => {
+    const list = Array.isArray(reviewsData[audioId]) ? reviewsData[audioId] : [];
+    list.forEach((review) => {
+      if (!review || review.username !== username) {
+        return;
+      }
+      const rating = clampRating(Number(review.rating));
+      if (rating !== null) {
+        userReviewRatings.set(audioId, rating);
+      }
+    });
+  });
+
+  const candidates = libraryItems.map((item) => {
+    const summary = buildReviewSummary(item.id, reviewsData);
+    const listened = listenedSeconds.get(item.id) || 0;
+    const categoryKey = item.categoryId || '__uncategorized__';
+    const authorKey = normalizeAuthorValue(item.author).toLocaleLowerCase('pl');
+    const tagsLower = Array.isArray(item.tags)
+      ? item.tags.map((tag) => tag.toLocaleLowerCase('pl'))
+      : [];
+
+    const catScore = (categoryScores.get(categoryKey) || 0) * 0.6;
+    const authorScore = (authorScores.get(authorKey) || 0) * 0.5;
+    const tagScore = tagsLower.reduce(
+      (acc, tag) => acc + (tagScores.get(tag) || 0),
+      0
+    ) * 0.4;
+    const ratingScore = summary.averageRating
+      ? summary.averageRating * Math.min(summary.totalReviews || 0, 20)
+      : 0;
+    const explorationBoost = listened > 0 && listened < 180 ? 2 : 0;
+    const noveltyPenalty = listened >= 600 || userReviewRatings.has(item.id) ? 5 : 0;
+    const rawScore =
+      catScore + authorScore + tagScore + ratingScore + explorationBoost;
+    const score = rawScore - noveltyPenalty;
+
+    const reasonParts = [];
+    if (catScore > 0.1) {
+      const categoryName = categoryNameMap.get(item.categoryId) || 'Bez kategorii';
+      reasonParts.push(`kategorię ${categoryName}`);
+    }
+    if (authorScore > 0.1 && item.author) {
+      reasonParts.push(`autora ${normalizeAuthorValue(item.author)}`);
+    }
+    if (tagScore > 0.1 && item.tags && item.tags.length) {
+      reasonParts.push(`tag ${item.tags[0]}`);
+    }
+    if (summary.averageRating && summary.averageRating >= 4 && summary.totalReviews) {
+      reasonParts.push('wysokie oceny słuchaczy');
+    }
+
+    const reason = reasonParts.length
+      ? `Polecamy ze względu na ${reasonParts.join(', ')}.`
+      : 'Polecamy na podstawie Twojej historii słuchania.';
+
+    return {
+      audioId: item.id,
+      title: item.title,
+      author: item.author,
+      categoryId: item.categoryId || null,
+      categoryName: categoryNameMap.get(item.categoryId) || null,
+      tags: item.tags || [],
+      averageRating: summary.averageRating,
+      totalReviews: summary.totalReviews,
+      listened,
+      score,
+      reason
+    };
+  });
+
+  const filtered = candidates
+    .filter((candidate) => candidate.score > 0)
+    .filter((candidate) => candidate.listened < 600 || candidate.totalReviews > 0);
+
+  const sorted = (filtered.length ? filtered : candidates)
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return sorted.slice(0, 6).map((candidate) => ({
+    audioId: candidate.audioId,
+    title: candidate.title,
+    author: candidate.author,
+    categoryId: candidate.categoryId,
+    categoryName: candidate.categoryName,
+    tags: candidate.tags,
+    averageRating: candidate.averageRating,
+    totalReviews: candidate.totalReviews,
+    reason: candidate.reason
+  }));
 }
 
 function buildListeningStats() {
@@ -290,6 +603,7 @@ ensureFile(LIBRARY_FILE, []);
 ensureFile(PROGRESS_FILE, {});
 ensureFile(CATEGORIES_FILE, []);
 ensureUsersFile();
+ensureReviewsFile();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -472,7 +786,7 @@ app.post(
     { name: 'audioFiles', maxCount: 150 }
   ]),
   (req, res) => {
-    const { title, description, author } = req.body;
+    const { title, description, author, tags: rawTags } = req.body;
     let { categoryId } = req.body;
     const files = req.files || {};
 
@@ -496,6 +810,7 @@ app.post(
 
     const library = loadJson(LIBRARY_FILE) || [];
     const id = `item-${Date.now()}`;
+    const tags = normalizeTagsInput(rawTags);
 
     const chapters = files.audioFiles
       .map((file, index) => ({
@@ -513,6 +828,7 @@ app.post(
       description: description.trim(),
       author: author.trim(),
       categoryId,
+      tags,
       imageUrl: files.coverImage
         ? `/uploads/images/${files.coverImage[0].filename}`
         : null,
@@ -569,7 +885,96 @@ app.delete('/api/library/:id', requireAdmin, (req, res) => {
     saveJson(PROGRESS_FILE, progress);
   }
 
+  const reviewsData = loadReviews();
+  if (reviewsData && typeof reviewsData === 'object' && reviewsData[id]) {
+    delete reviewsData[id];
+    saveReviews(reviewsData);
+  }
+
   res.json({ message: 'Audiobook został usunięty.' });
+});
+
+app.get('/api/reviews/:audioId', requireAuth, (req, res) => {
+  const { audioId } = req.params;
+  const trimmed = typeof audioId === 'string' ? audioId.trim() : '';
+
+  if (!trimmed) {
+    return res.status(400).json({ message: 'Identyfikator audiobooka jest wymagany.' });
+  }
+
+  const reviewsData = loadReviews();
+  const summary = buildReviewSummary(trimmed, reviewsData);
+  res.json(summary);
+});
+
+app.post('/api/reviews', requireAuth, (req, res) => {
+  const { audioId, rating, comment } = req.body || {};
+  const normalizedId = typeof audioId === 'string' ? audioId.trim() : '';
+
+  if (!normalizedId) {
+    return res.status(400).json({ message: 'Identyfikator audiobooka jest wymagany.' });
+  }
+
+  const numericRating = clampRating(Number(rating));
+  if (numericRating === null) {
+    return res.status(400).json({ message: 'Ocena musi być liczbą w zakresie 1-5.' });
+  }
+
+  const library = loadJson(LIBRARY_FILE) || [];
+  const exists = library.some((item) => item && item.id === normalizedId);
+  if (!exists) {
+    return res.status(404).json({ message: 'Nie znaleziono wskazanego audiobooka.' });
+  }
+
+  const trimmedComment =
+    typeof comment === 'string' && comment.trim()
+      ? comment.trim().slice(0, 2000)
+      : '';
+
+  const username = req.session.user.username;
+  const now = new Date().toISOString();
+  const reviewsData = loadReviews();
+  const list = Array.isArray(reviewsData[normalizedId])
+    ? reviewsData[normalizedId]
+    : [];
+
+  const existingIndex = list.findIndex(
+    (review) => review && review.username === username
+  );
+
+  if (existingIndex !== -1) {
+    const previous = list[existingIndex] || {};
+    list[existingIndex] = {
+      username,
+      rating: numericRating,
+      comment: trimmedComment,
+      createdAt:
+        typeof previous.createdAt === 'string' && previous.createdAt.trim()
+          ? previous.createdAt
+          : now,
+      updatedAt: now
+    };
+  } else {
+    list.push({
+      username,
+      rating: numericRating,
+      comment: trimmedComment,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  reviewsData[normalizedId] = list;
+  saveReviews(reviewsData);
+
+  const summary = buildReviewSummary(normalizedId, reviewsData);
+  res.json(summary);
+});
+
+app.get('/api/recommendations', requireAuth, (req, res) => {
+  const username = req.session.user.username;
+  const recommendations = buildRecommendationsForUser(username);
+  res.json(recommendations);
 });
 
 app.get('/api/progress', requireAuth, (req, res) => {

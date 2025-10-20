@@ -319,6 +319,39 @@ button.link:hover {
   justify-content: flex-end;
 }
 
+.library-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+  align-items: end;
+}
+
+.library-filters label {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.library-filters input,
+.library-filters select {
+  margin-top: 0;
+}
+
+.library-filters button {
+  align-self: flex-start;
+  height: fit-content;
+  padding: 10px 22px;
+}
+
+.filter-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
 .subtitle {
   margin: 6px 0 0;
   color: var(--muted);
@@ -414,6 +447,113 @@ button.link:hover {
   border: 1px solid rgba(148, 163, 184, 0.18);
   position: relative;
   overflow: hidden;
+}
+
+.tag-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.tag-list li {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.tag-list.hidden {
+  display: none;
+}
+
+.recommendations {
+  margin-top: 28px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 22px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.recommendations-header h3 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.recommendations-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.recommendation-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.recommendation-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-2px);
+}
+
+.recommendation-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recommendation-header h4 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.recommendation-rating {
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.recommendation-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.recommendation-tags {
+  margin: 0;
+}
+
+.recommendation-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.recommendation-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+}
+
+.recommendations-empty {
+  margin: 0;
+  color: var(--muted);
 }
 
 .cover img {
@@ -553,6 +693,110 @@ button.link:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.reviews {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reviews-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.reviews-header h4 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.reviews-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review-form label {
+  margin-bottom: 0;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.review-form textarea {
+  min-height: 90px;
+}
+
+.review-form button {
+  align-self: flex-start;
+}
+
+.review-feedback {
+  margin: 4px 0 0;
+  color: var(--accent);
+  min-height: 1.2em;
+}
+
+.reviews-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.review-item {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-item-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.review-item-header strong {
+  font-size: 1rem;
+}
+
+.review-rating {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.review-date {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+.review-comment {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.reviews-empty {
+  margin: 0;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .chapter-row {

@@ -20,6 +20,12 @@ const libraryTitle = document.getElementById('library-title');
 const librarySubtitle = document.getElementById('library-subtitle');
 const libraryList = document.getElementById('library-list');
 const emptyLibrary = document.getElementById('empty-library');
+const libraryFilters = document.getElementById('library-filters');
+const librarySearchInput = document.getElementById('library-search');
+const filterAuthorSelect = document.getElementById('filter-author');
+const filterCategorySelect = document.getElementById('filter-category');
+const filterTagSelect = document.getElementById('filter-tag');
+const filtersClearBtn = document.getElementById('filters-clear');
 const categoryTemplate = document.getElementById('category-card-template');
 const itemTemplate = document.getElementById('library-item-template');
 const adminToggleBtn = document.getElementById('admin-toggle-btn');
@@ -28,6 +34,12 @@ const uploadProgressBar = document.getElementById('upload-progress-bar');
 const uploadProgressText = document.getElementById('upload-progress-text');
 const adminStatsContainer = document.getElementById('user-stats');
 const adminStatsEmpty = document.getElementById('user-stats-empty');
+const recommendationsSection = document.getElementById('recommendations-section');
+const recommendationsList = document.getElementById('recommendations-list');
+const recommendationsEmpty = document.getElementById('recommendations-empty');
+const defaultRecommendationsEmptyText = recommendationsEmpty
+  ? recommendationsEmpty.textContent
+  : 'Brak rekomendacji.';
 
 const playerPanel = document.getElementById('player-panel');
 const playerBody = document.getElementById('player-body');
@@ -51,6 +63,14 @@ const speedApplyBtn = document.getElementById('speed-apply');
 const volumeSlider = document.getElementById('volume-slider');
 const audioElement = document.getElementById('player-audio');
 const chapterSelect = document.getElementById('chapter-select');
+const reviewsSection = document.getElementById('reviews-section');
+const reviewsSummary = document.getElementById('reviews-summary');
+const reviewForm = document.getElementById('review-form');
+const reviewRating = document.getElementById('review-rating');
+const reviewComment = document.getElementById('review-comment');
+const reviewFeedback = document.getElementById('review-feedback');
+const reviewsList = document.getElementById('reviews-list');
+const reviewsEmpty = document.getElementById('reviews-empty');
 
 let currentUser = null;
 let libraryItems = [];
@@ -67,6 +87,10 @@ let modalInitialSpeed = null;
 let adminViewMode = 'library';
 const lastProgressUpdate = {};
 const UNCATEGORIZED_ID = '__uncategorized__';
+let filtersState = { query: '', author: '', category: '', tag: '' };
+let currentReviewSummary = null;
+let recommendationsData = [];
+let recommendationsRefreshTimeout = null;
 
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, options);
@@ -295,6 +319,270 @@ function resolveAuthorName(author) {
   return trimmed || 'Nieznany autor';
 }
 
+function normalizeItemTags(tags) {
+  if (Array.isArray(tags)) {
+    return tags
+      .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+      .filter(Boolean);
+  }
+  if (typeof tags === 'string') {
+    return tags
+      .split(/[,;\n]/)
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function formatRating(value) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return Number(value)
+    .toFixed(2)
+    .replace(/\.00$/, '')
+    .replace(/(\.\d)0$/, '$1');
+}
+
+function formatDateShort(isoString) {
+  if (!isoString) {
+    return '';
+  }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleDateString('pl-PL', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
+function renderTagList(container, tags) {
+  if (!container) {
+    return;
+  }
+
+  const normalized = normalizeItemTags(tags);
+  container.innerHTML = '';
+
+  if (!normalized.length) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+  normalized.forEach((tag) => {
+    const element = document.createElement('li');
+    element.textContent = tag;
+    container.appendChild(element);
+  });
+}
+
+function hasActiveFilters() {
+  return (
+    (filtersState.query && filtersState.query.trim()) ||
+    filtersState.author ||
+    filtersState.category ||
+    filtersState.tag
+  );
+}
+
+function getFilteredItems() {
+  if (!libraryItems.length) {
+    return [];
+  }
+
+  const query = filtersState.query.trim().toLocaleLowerCase('pl');
+  const authorFilter = filtersState.author;
+  const categoryFilter = filtersState.category;
+  const tagFilter = filtersState.tag;
+
+  return libraryItems.filter((item) => {
+    if (categoryFilter) {
+      const categoryKey = item.categoryId || UNCATEGORIZED_ID;
+      if (categoryFilter === UNCATEGORIZED_ID) {
+        if (item.categoryId) {
+          return false;
+        }
+      } else if (categoryKey !== categoryFilter) {
+        return false;
+      }
+    }
+
+    if (authorFilter) {
+      const authorKey = resolveAuthorName(item.author).toLocaleLowerCase('pl');
+      if (authorKey !== authorFilter) {
+        return false;
+      }
+    }
+
+    if (tagFilter) {
+      const tags = normalizeItemTags(item.tags).map((tag) =>
+        tag.toLocaleLowerCase('pl')
+      );
+      if (!tags.includes(tagFilter)) {
+        return false;
+      }
+    }
+
+    if (query) {
+      const haystack = [
+        item.title || '',
+        resolveAuthorName(item.author),
+        item.description || '',
+        ...normalizeItemTags(item.tags)
+      ]
+        .join(' ')
+        .toLocaleLowerCase('pl');
+
+      if (!haystack.includes(query)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function populateFilterSelect(select, entries, placeholder) {
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = '';
+
+  const placeholderOption = document.createElement('option');
+  placeholderOption.value = '';
+  placeholderOption.textContent = placeholder;
+  select.appendChild(placeholderOption);
+
+  entries.forEach(([value, label]) => {
+    if (typeof value !== 'string') {
+      return;
+    }
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  });
+}
+
+function setSelectValue(select, value) {
+  if (!select) {
+    return;
+  }
+  const available = Array.from(select.options).map((option) => option.value);
+  if (available.includes(value)) {
+    select.value = value;
+  } else {
+    select.value = '';
+  }
+}
+
+function updateLibraryFilters() {
+  if (!libraryFilters) {
+    return;
+  }
+
+  if (!libraryItems.length) {
+    libraryFilters.classList.add('hidden');
+    if (librarySearchInput) {
+      librarySearchInput.value = '';
+    }
+    if (filterAuthorSelect) {
+      filterAuthorSelect.innerHTML = '';
+    }
+    if (filterCategorySelect) {
+      filterCategorySelect.innerHTML = '';
+    }
+    if (filterTagSelect) {
+      filterTagSelect.innerHTML = '';
+    }
+    return;
+  }
+
+  libraryFilters.classList.remove('hidden');
+
+  if (librarySearchInput && librarySearchInput.value !== filtersState.query) {
+    librarySearchInput.value = filtersState.query;
+  }
+
+  if (filterAuthorSelect) {
+    const authors = new Map();
+    libraryItems.forEach((item) => {
+      const label = resolveAuthorName(item.author);
+      const key = label.toLocaleLowerCase('pl');
+      if (!authors.has(key)) {
+        authors.set(key, label);
+      }
+    });
+    const authorEntries = Array.from(authors.entries()).sort((a, b) =>
+      a[1].localeCompare(b[1], 'pl', { sensitivity: 'base' })
+    );
+    populateFilterSelect(filterAuthorSelect, authorEntries, 'Wszyscy autorzy');
+    setSelectValue(filterAuthorSelect, filtersState.author);
+  }
+
+  if (filterCategorySelect) {
+    const uniqueCategories = new Map();
+    categories.forEach((category) => {
+      if (category && category.id) {
+        uniqueCategories.set(category.id, category.name || 'Kategoria');
+      }
+    });
+    if (libraryItems.some((item) => !item.categoryId)) {
+      uniqueCategories.set(UNCATEGORIZED_ID, 'Bez kategorii');
+    }
+    const categoryEntries = Array.from(uniqueCategories.entries()).sort((a, b) =>
+      (a[1] || '').localeCompare(b[1] || '', 'pl', { sensitivity: 'base' })
+    );
+    populateFilterSelect(
+      filterCategorySelect,
+      categoryEntries,
+      'Wszystkie kategorie'
+    );
+    setSelectValue(filterCategorySelect, filtersState.category);
+  }
+
+  if (filterTagSelect) {
+    const tags = new Map();
+    libraryItems.forEach((item) => {
+      normalizeItemTags(item.tags).forEach((tag) => {
+        const key = tag.toLocaleLowerCase('pl');
+        if (!tags.has(key)) {
+          tags.set(key, tag);
+        }
+      });
+    });
+    const tagEntries = Array.from(tags.entries()).sort((a, b) =>
+      a[1].localeCompare(b[1], 'pl', { sensitivity: 'base' })
+    );
+    populateFilterSelect(filterTagSelect, tagEntries, 'Wszystkie tagi');
+    setSelectValue(filterTagSelect, filtersState.tag);
+  }
+}
+
+function resetFilters({ render = true } = {}) {
+  filtersState = { query: '', author: '', category: '', tag: '' };
+  if (librarySearchInput) {
+    librarySearchInput.value = '';
+  }
+  if (filterAuthorSelect) {
+    filterAuthorSelect.value = '';
+  }
+  if (filterCategorySelect) {
+    filterCategorySelect.value = '';
+  }
+  if (filterTagSelect) {
+    filterTagSelect.value = '';
+  }
+  if (render) {
+    renderLibrary();
+  }
+}
+
 function updateAdminView(mode = adminViewMode) {
   if (!librarySection || !uploadSection) {
     return;
@@ -355,6 +643,21 @@ async function setLoggedIn(user) {
     currentCategoryId = null;
     progressState = createDefaultProgressState();
     autoResumeAttempted = false;
+    filtersState = { query: '', author: '', category: '', tag: '' };
+    resetReviews();
+    resetRecommendations();
+    if (librarySearchInput) {
+      librarySearchInput.value = '';
+    }
+    if (filterAuthorSelect) {
+      filterAuthorSelect.value = '';
+    }
+    if (filterCategorySelect) {
+      filterCategorySelect.value = '';
+    }
+    if (filterTagSelect) {
+      filterTagSelect.value = '';
+    }
     await fetchProgressState();
     await fetchLibrary();
     attemptAutoResume();
@@ -390,6 +693,9 @@ async function setLoggedIn(user) {
         adminStatsContainer.appendChild(adminStatsEmpty);
       }
     }
+    resetFilters({ render: false });
+    resetReviews();
+    resetRecommendations();
   }
 }
 
@@ -414,6 +720,7 @@ function resetPlayer() {
   playerStatus.textContent = 'Wybierz audiobook, aby rozpocząć.';
   closeSpeedModal();
   updateChapterSelect([]);
+  resetReviews();
 }
 
 function setPlaybackSpeed(rate, { persist = true } = {}) {
@@ -503,7 +810,8 @@ async function fetchLibrary() {
     libraryItems = Array.isArray(items)
       ? items.map((item) => ({
           ...item,
-          chapters: getChapters(item)
+          chapters: getChapters(item),
+          tags: normalizeItemTags(item.tags)
         }))
       : [];
 
@@ -527,6 +835,9 @@ async function fetchLibrary() {
     if (currentUser && currentUser.role === 'admin') {
       fetchAdminStats();
     }
+    if (currentUser) {
+      fetchRecommendations();
+    }
   } catch (error) {
     console.error(error);
     alert(`Nie udało się pobrać biblioteki: ${error.message}`);
@@ -535,10 +846,30 @@ async function fetchLibrary() {
 
 function renderLibrary() {
   updateCategorySelect();
+  updateLibraryFilters();
+
+  const filtersActive = hasActiveFilters();
+  const filteredItems = filtersActive ? getFilteredItems() : [];
 
   const uncategorizedCount = libraryItems.filter((item) => !item.categoryId).length;
   const hasCategories = categories.length > 0;
   const hasItems = libraryItems.length > 0;
+
+  if (filtersActive) {
+    categoryList.classList.add('hidden');
+    backToCategoriesBtn.classList.add('hidden');
+    const hasFilteredItems = renderItemsList(filteredItems);
+
+    libraryTitle.textContent = 'Wyniki wyszukiwania';
+    if (hasFilteredItems) {
+      librarySubtitle.textContent = `Znaleziono ${formatCount(filteredItems.length)} dopasowane do filtrów.`;
+      hideEmptyState();
+    } else {
+      librarySubtitle.textContent = 'Brak wyników dla wybranych filtrów.';
+      showEmptyState('Brak wyników. Spróbuj zmienić kryteria wyszukiwania.');
+    }
+    return;
+  }
 
   if (!hasCategories && uncategorizedCount === 0) {
     categoryList.classList.add('hidden');
@@ -651,6 +982,7 @@ function showCategoryOverview(uncategorizedCount) {
     countEl.textContent = formatCount(itemsInCategory);
 
     selectBtn.addEventListener('click', () => {
+      resetFilters({ render: false });
       currentCategoryId = category.id;
       renderLibrary();
     });
@@ -840,6 +1172,7 @@ function renderItemsList(items) {
     const playButton = clone.querySelector('.play-btn');
     const deleteButton = clone.querySelector('.delete-btn');
     const authorText = clone.querySelector('.author-text');
+    const tagList = clone.querySelector('.tag-list');
 
     article.dataset.itemId = item.id;
     titleEl.textContent = item.title;
@@ -855,6 +1188,8 @@ function renderItemsList(items) {
 
     const authorName = resolveAuthorName(item.author);
     authorText.textContent = authorName;
+
+    renderTagList(tagList, item.tags);
 
     setCoverImage(cover, coverImage, item.imageUrl, {
       altText: item.title ? `Okładka audiobooka ${item.title}` : 'Okładka audiobooka',
@@ -1036,6 +1371,334 @@ async function fetchAdminStats() {
   }
 }
 
+function resetReviews() {
+  currentReviewSummary = null;
+  if (reviewFeedback) {
+    reviewFeedback.textContent = '';
+  }
+  if (reviewsSummary) {
+    reviewsSummary.textContent = '';
+  }
+  if (reviewsList) {
+    reviewsList.innerHTML = '';
+    reviewsList.classList.add('hidden');
+  }
+  if (reviewsEmpty) {
+    reviewsEmpty.classList.add('hidden');
+  }
+  if (reviewForm) {
+    reviewForm.reset();
+  }
+  if (reviewsSection) {
+    reviewsSection.classList.add('hidden');
+  }
+}
+
+function renderReviews(summary) {
+  if (!reviewsSection) {
+    return;
+  }
+
+  if (!summary || summary.audioId !== currentTrackId) {
+    return;
+  }
+
+  currentReviewSummary = summary;
+  reviewsSection.classList.remove('hidden');
+
+  if (reviewFeedback) {
+    reviewFeedback.textContent = '';
+  }
+
+  if (reviewsSummary) {
+    if (summary.totalReviews > 0 && Number.isFinite(summary.averageRating)) {
+      const formatted = formatRating(summary.averageRating) || summary.averageRating;
+      const countLabel = summary.totalReviews === 1
+        ? '1 recenzja'
+        : summary.totalReviews >= 2 && summary.totalReviews <= 4
+        ? `${summary.totalReviews} recenzje`
+        : `${summary.totalReviews} recenzji`;
+      reviewsSummary.textContent = `Średnia: ${formatted} / 5 · ${countLabel}`;
+    } else {
+      reviewsSummary.textContent = 'Brak ocen. Dodaj swoją recenzję!';
+    }
+  }
+
+  if (reviewForm) {
+    const userReview =
+      currentUser && Array.isArray(summary.reviews)
+        ? summary.reviews.find((entry) => entry && entry.username === currentUser.username)
+        : null;
+    if (reviewRating) {
+      reviewRating.value = userReview ? String(userReview.rating) : '';
+    }
+    if (reviewComment) {
+      reviewComment.value = userReview ? userReview.comment || '' : '';
+    }
+  }
+
+  if (!reviewsList) {
+    return;
+  }
+
+  reviewsList.innerHTML = '';
+  const list = Array.isArray(summary.reviews) ? summary.reviews : [];
+
+  if (!list.length) {
+    reviewsList.classList.add('hidden');
+    if (reviewsEmpty) {
+      reviewsEmpty.classList.remove('hidden');
+    }
+    return;
+  }
+
+  reviewsList.classList.remove('hidden');
+  if (reviewsEmpty) {
+    reviewsEmpty.classList.add('hidden');
+  }
+
+  const sorted = [...list].sort((a, b) => {
+    const first = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    const second = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    return first - second;
+  });
+
+  sorted.forEach((review) => {
+    if (!review || typeof review.username !== 'string') {
+      return;
+    }
+
+    const item = document.createElement('article');
+    item.className = 'review-item';
+
+    const header = document.createElement('div');
+    header.className = 'review-item-header';
+
+    const name = document.createElement('strong');
+    name.textContent = review.username;
+    header.appendChild(name);
+
+    if (Number.isFinite(review.rating)) {
+      const ratingValue = document.createElement('span');
+      ratingValue.className = 'review-rating';
+      const formatted = formatRating(review.rating) || review.rating;
+      ratingValue.textContent = `${formatted} / 5`;
+      header.appendChild(ratingValue);
+    }
+
+    const dateText = formatDateShort(review.updatedAt || review.createdAt);
+    if (dateText) {
+      const dateEl = document.createElement('span');
+      dateEl.className = 'review-date';
+      dateEl.textContent = dateText;
+      header.appendChild(dateEl);
+    }
+
+    item.appendChild(header);
+
+    if (review.comment) {
+      const content = document.createElement('p');
+      content.className = 'review-comment';
+      content.textContent = review.comment;
+      item.appendChild(content);
+    }
+
+    reviewsList.appendChild(item);
+  });
+}
+
+async function loadReviewsForTrack(audioId) {
+  if (!currentUser || !audioId) {
+    resetReviews();
+    return;
+  }
+
+  if (reviewsSection) {
+    reviewsSection.classList.remove('hidden');
+  }
+  if (reviewsSummary) {
+    reviewsSummary.textContent = 'Ładowanie recenzji...';
+  }
+  if (reviewFeedback) {
+    reviewFeedback.textContent = '';
+  }
+
+  try {
+    const summary = await apiRequest(`/api/reviews/${audioId}`);
+    if (audioId !== currentTrackId) {
+      return;
+    }
+    const normalizedSummary = summary || {
+      audioId,
+      averageRating: null,
+      totalReviews: 0,
+      reviews: []
+    };
+    renderReviews(normalizedSummary);
+  } catch (error) {
+    console.warn('Nie udało się pobrać recenzji:', error.message);
+    if (audioId !== currentTrackId) {
+      return;
+    }
+    if (reviewFeedback) {
+      reviewFeedback.textContent = `Nie udało się pobrać recenzji: ${error.message}`;
+    }
+    renderReviews({ audioId, averageRating: null, totalReviews: 0, reviews: [] });
+  }
+}
+
+function resetRecommendations() {
+  recommendationsData = [];
+  if (recommendationsRefreshTimeout) {
+    clearTimeout(recommendationsRefreshTimeout);
+    recommendationsRefreshTimeout = null;
+  }
+  if (!recommendationsSection) {
+    return;
+  }
+  recommendationsSection.classList.add('hidden');
+  if (recommendationsList) {
+    recommendationsList.innerHTML = '';
+    recommendationsList.classList.remove('hidden');
+  }
+  if (recommendationsEmpty) {
+    recommendationsEmpty.textContent = defaultRecommendationsEmptyText;
+    recommendationsEmpty.classList.add('hidden');
+  }
+}
+
+function renderRecommendations(list) {
+  if (!recommendationsSection || !recommendationsList || !recommendationsEmpty) {
+    return;
+  }
+
+  recommendationsData = Array.isArray(list) ? list : [];
+  recommendationsSection.classList.remove('hidden');
+  recommendationsList.innerHTML = '';
+
+  if (!recommendationsData.length) {
+    recommendationsList.classList.add('hidden');
+    recommendationsEmpty.textContent = defaultRecommendationsEmptyText;
+    recommendationsEmpty.classList.remove('hidden');
+    return;
+  }
+
+  recommendationsList.classList.remove('hidden');
+  recommendationsEmpty.classList.add('hidden');
+
+  recommendationsData.forEach((item) => {
+    if (!item || !item.audioId) {
+      return;
+    }
+
+    const card = document.createElement('article');
+    card.className = 'recommendation-card';
+
+    const header = document.createElement('div');
+    header.className = 'recommendation-header';
+
+    const title = document.createElement('h4');
+    title.textContent = item.title || 'Audiobook';
+    header.appendChild(title);
+
+    if (Number.isFinite(item.averageRating) && item.totalReviews) {
+      const rating = document.createElement('span');
+      rating.className = 'recommendation-rating';
+      const formatted = formatRating(item.averageRating) || item.averageRating;
+      const countLabel = item.totalReviews === 1
+        ? '1 ocena'
+        : item.totalReviews >= 2 && item.totalReviews <= 4
+        ? `${item.totalReviews} oceny`
+        : `${item.totalReviews} ocen`;
+      rating.textContent = `${formatted} / 5 · ${countLabel}`;
+      header.appendChild(rating);
+    }
+
+    card.appendChild(header);
+
+    const meta = document.createElement('p');
+    meta.className = 'recommendation-meta';
+    const authorName = resolveAuthorName(item.author);
+    const categoryName = item.categoryName || 'Bez kategorii';
+    meta.textContent = `${authorName} · ${categoryName}`;
+    card.appendChild(meta);
+
+    const tagsContainer = document.createElement('ul');
+    tagsContainer.className = 'tag-list recommendation-tags';
+    renderTagList(tagsContainer, item.tags);
+    if (!tagsContainer.classList.contains('hidden')) {
+      card.appendChild(tagsContainer);
+    }
+
+    if (item.reason) {
+      const reason = document.createElement('p');
+      reason.className = 'recommendation-reason';
+      reason.textContent = item.reason;
+      card.appendChild(reason);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'recommendation-actions';
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'secondary';
+    playBtn.textContent = 'Odtwórz';
+    playBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const match = libraryItems.find((entry) => entry.id === item.audioId);
+      if (match) {
+        loadTrack(match, { autoplay: true, resumeFromProgress: true });
+      }
+    });
+
+    actions.appendChild(playBtn);
+    card.appendChild(actions);
+
+    recommendationsList.appendChild(card);
+  });
+}
+
+function renderRecommendationsMessage(message) {
+  if (!recommendationsSection || !recommendationsEmpty || !recommendationsList) {
+    return;
+  }
+  recommendationsSection.classList.remove('hidden');
+  recommendationsList.innerHTML = '';
+  recommendationsList.classList.add('hidden');
+  recommendationsEmpty.textContent = message;
+  recommendationsEmpty.classList.remove('hidden');
+}
+
+async function fetchRecommendations() {
+  if (!currentUser || !recommendationsSection) {
+    return;
+  }
+
+  try {
+    const response = await apiRequest('/api/recommendations');
+    renderRecommendations(Array.isArray(response) ? response : []);
+  } catch (error) {
+    console.warn('Nie udało się pobrać rekomendacji:', error.message);
+    renderRecommendationsMessage(
+      `Nie udało się pobrać rekomendacji: ${error.message}`
+    );
+  }
+}
+
+function scheduleRecommendationsRefresh(delay = 4000) {
+  if (!currentUser) {
+    return;
+  }
+  if (recommendationsRefreshTimeout) {
+    clearTimeout(recommendationsRefreshTimeout);
+  }
+  recommendationsRefreshTimeout = setTimeout(() => {
+    recommendationsRefreshTimeout = null;
+    fetchRecommendations();
+  }, Math.max(delay, 500));
+}
+
 async function loadTrack(item, options = {}) {
   if (!currentUser) return;
 
@@ -1046,6 +1709,7 @@ async function loadTrack(item, options = {}) {
   } = options;
 
   closeSpeedModal();
+  resetReviews();
 
   const chapters = getChapters(item);
   if (!chapters.length) {
@@ -1127,6 +1791,7 @@ async function loadTrack(item, options = {}) {
   });
 
   highlightCurrentTrack();
+  loadReviewsForTrack(item.id);
 
   if (autoplay) {
     try {
@@ -1431,6 +2096,102 @@ if (backToCategoriesBtn) {
   });
 }
 
+if (librarySearchInput) {
+  let searchDebounce = null;
+  librarySearchInput.addEventListener('input', () => {
+    filtersState.query = librarySearchInput.value.trim();
+    if (searchDebounce) {
+      clearTimeout(searchDebounce);
+    }
+    searchDebounce = setTimeout(() => {
+      renderLibrary();
+    }, 200);
+  });
+}
+
+if (filterAuthorSelect) {
+  filterAuthorSelect.addEventListener('change', () => {
+    filtersState.author = filterAuthorSelect.value;
+    renderLibrary();
+  });
+}
+
+if (filterCategorySelect) {
+  filterCategorySelect.addEventListener('change', () => {
+    filtersState.category = filterCategorySelect.value;
+    currentCategoryId = null;
+    renderLibrary();
+  });
+}
+
+if (filterTagSelect) {
+  filterTagSelect.addEventListener('change', () => {
+    filtersState.tag = filterTagSelect.value;
+    renderLibrary();
+  });
+}
+
+if (filtersClearBtn) {
+  filtersClearBtn.addEventListener('click', () => {
+    currentCategoryId = null;
+    resetFilters();
+  });
+}
+
+if (reviewForm) {
+  reviewForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!currentUser || !currentTrackId) {
+      if (reviewFeedback) {
+        reviewFeedback.textContent = 'Wybierz audiobook, aby dodać recenzję.';
+      }
+      return;
+    }
+
+    const ratingValue = Number(reviewRating ? reviewRating.value : 0);
+    if (!Number.isFinite(ratingValue) || ratingValue < 1) {
+      if (reviewFeedback) {
+        reviewFeedback.textContent = 'Wybierz ocenę w skali 1-5.';
+      }
+      return;
+    }
+
+    const comment = reviewComment ? reviewComment.value.trim() : '';
+
+    try {
+      setFormDisabled(reviewForm, true);
+      if (reviewFeedback) {
+        reviewFeedback.textContent = 'Zapisywanie recenzji...';
+      }
+      const summary = await apiRequest('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioId: currentTrackId,
+          rating: ratingValue,
+          comment
+        })
+      });
+      renderReviews(summary || {
+        audioId: currentTrackId,
+        averageRating: null,
+        totalReviews: 0,
+        reviews: []
+      });
+      if (reviewFeedback) {
+        reviewFeedback.textContent = 'Recenzja została zapisana.';
+      }
+      scheduleRecommendationsRefresh(1500);
+    } catch (error) {
+      if (reviewFeedback) {
+        reviewFeedback.textContent = `Nie udało się zapisać recenzji: ${error.message}`;
+      }
+    } finally {
+      setFormDisabled(reviewForm, false);
+    }
+  });
+}
+
 if (chapterSelect) {
   chapterSelect.addEventListener('change', () => {
     const targetItemId = chapterSelect.dataset.itemId || currentTrackId;
@@ -1549,6 +2310,7 @@ audioElement.addEventListener('timeupdate', () => {
       time,
       lastBookId: currentTrackId
     });
+    scheduleRecommendationsRefresh(8000);
   }
 });
 
@@ -1572,6 +2334,7 @@ audioElement.addEventListener('pause', () => {
       time,
       lastBookId: currentTrackId
     });
+    scheduleRecommendationsRefresh(4000);
   }
 });
 
@@ -1590,6 +2353,7 @@ audioElement.addEventListener('ended', () => {
     });
   }
   highlightCurrentTrack();
+  scheduleRecommendationsRefresh(2000);
 });
 
 audioElement.volume = Number(volumeSlider.value);
