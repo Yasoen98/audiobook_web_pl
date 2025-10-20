@@ -479,7 +479,6 @@ async function setLoggedIn(user) {
         adminStatsContainer.appendChild(adminStatsEmpty);
       }
     }
-    resetFilters({ render: false });
     resetReviews();
     resetRecommendations();
   }
@@ -748,7 +747,6 @@ function showCategoryOverview(uncategorizedCount) {
     countEl.textContent = formatCount(itemsInCategory);
 
     selectBtn.addEventListener('click', () => {
-      resetFilters({ render: false });
       currentCategoryId = category.id;
       renderLibrary();
     });

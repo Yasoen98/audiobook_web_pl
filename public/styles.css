@@ -354,46 +354,6 @@ button.link:hover {
   gap: 6px;
 }
 
-.library-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.library-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-  align-items: end;
-}
-
-.library-filters label {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.library-filters input,
-.library-filters select {
-  margin-top: 0;
-}
-
-.library-filters button {
-  align-self: flex-start;
-  height: fit-content;
-  padding: 10px 22px;
-}
-
-.filter-label {
-  font-size: 0.9rem;
-  color: var(--muted);
-}
-
 .subtitle {
   margin: 6px 0 0;
   color: var(--muted);
