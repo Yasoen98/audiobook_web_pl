@@ -489,6 +489,24 @@ body.admin-panel-open #upload-section h2 {
   transform: none;
 }
 
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.delete-btn {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  box-shadow: none;
+  transform: none;
+}
+
 .library-item h3 {
   margin: 0;
   font-size: 1.15rem;

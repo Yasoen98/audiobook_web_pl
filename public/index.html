@@ -33,7 +33,6 @@
           <input type="password" id="password" required />
         </label>
         <button type="submit">Zaloguj</button>
-        <p class="hint">Dostępni użytkownicy: <strong>user/user123</strong>, <strong>admin/admin123</strong></p>
       </form>
     </section>
 
@@ -149,6 +148,14 @@
       <div id="category-list" class="category-grid hidden"></div>
       <div id="library-list" class="library-grid hidden"></div>
       <p id="empty-library" class="hidden">Brak audiobooków. Administrator może dodać nowe pozycje.</p>
+      <section id="recommendations-section" class="recommendations hidden" aria-live="polite">
+        <div class="recommendations-header">
+          <h3>Polecane dla Ciebie</h3>
+          <p class="subtitle">Na podstawie historii słuchania i ocen społeczności.</p>
+        </div>
+        <div id="recommendations-list" class="recommendations-list"></div>
+        <p id="recommendations-empty" class="recommendations-empty">Brak rekomendacji. Słuchaj i oceniaj audiobooki, aby otrzymać propozycje.</p>
+      </section>
     </section>
 
     <aside id="player-panel" class="player hidden">
@@ -247,7 +254,14 @@
           <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
         </div>
       </div>
-    </article>
+      <p class="author-line">Autor: <span class="author-text"></span></p>
+      <p class="description"></p>
+      <ul class="tag-list" aria-label="Tagi"></ul>
+      <div class="links">
+        <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
+      </div>
+    </div>
+  </article>
   </template>
 
   <div id="speed-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="speed-modal-title">

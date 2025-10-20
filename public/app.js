@@ -3,7 +3,7 @@ const uploadSection = document.getElementById('upload-section');
 const librarySection = document.getElementById('library-section');
 const userInfo = document.getElementById('user-info');
 const welcomeText = document.getElementById('welcome-text');
-const logoutBtn = document.getElementById('logout-btn');
+const logoutBtn = document.getElementById('logout-btn');  
 const loginForm = document.getElementById('login-form');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
@@ -450,7 +450,7 @@ function updateAdminView(mode = adminViewMode) {
     librarySection.classList.remove('hidden');
     uploadSection.classList.add('hidden');
   }
-
+  
   if (document.body) {
     document.body.classList.toggle('admin-panel-open', adminViewMode === 'admin');
   }
@@ -514,6 +514,8 @@ async function setLoggedIn(user) {
     resetUploadProgress();
     resetReviews();
   }
+  adminStatsContainer.innerHTML = '';
+  adminStatsContainer.appendChild(createStatsMessage('Ładowanie statystyk...'));
 }
 
 function resetPlayer() {
@@ -592,14 +594,23 @@ function closeSpeedModal() {
   modalInitialSpeed = null;
 }
 
-async function fetchSession() {
+async function fetchAdminStats() {
+  if (!currentUser || currentUser.role !== 'admin' || !adminStatsContainer) {
+    return;
+  }
+
+  if (adminViewMode === 'admin') {
+    showAdminStatsLoading();
+  }
+
   try {
     const session = await apiRequest('/api/session');
     if (session) {
       await setLoggedIn(session);
     }
   } catch (error) {
-    console.warn('Brak aktywnej sesji');
+    console.error('Nie udało się pobrać statystyk:', error);
+    renderAdminStatsError(error.message);
   }
 }
 
@@ -2028,6 +2039,7 @@ audioElement.addEventListener('ended', () => {
     });
   }
   highlightCurrentTrack();
+  scheduleRecommendationsRefresh(2000);
 });
 
 audioElement.volume = Number(volumeSlider.value);
