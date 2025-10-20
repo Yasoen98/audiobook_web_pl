@@ -11,6 +11,7 @@ const uploadForm = document.getElementById('upload-form');
 const userForm = document.getElementById('user-form');
 const newUsernameInput = document.getElementById('new-username');
 const newPasswordInput = document.getElementById('new-password');
+const newRoleSelect = document.getElementById('new-role');
 const categoryForm = document.getElementById('category-form');
 const categoryNameInput = document.getElementById('category-name');
 const categorySelect = document.getElementById('audiobook-category');
@@ -26,8 +27,12 @@ const adminToggleBtn = document.getElementById('admin-toggle-btn');
 const uploadStatus = document.getElementById('upload-status');
 const uploadProgressBar = document.getElementById('upload-progress-bar');
 const uploadProgressText = document.getElementById('upload-progress-text');
-const adminStatsContainer = document.getElementById('user-stats');
-const adminStatsEmpty = document.getElementById('user-stats-empty');
+const chapterUploadForm = document.getElementById('chapter-upload-form');
+const chapterAudiobookSelect = document.getElementById('chapter-audiobook');
+const chapterFilesInput = document.getElementById('chapter-files');
+const chapterUploadStatus = document.getElementById('chapter-upload-status');
+const chapterUploadProgressBar = document.getElementById('chapter-upload-progress-bar');
+const chapterUploadProgressText = document.getElementById('chapter-upload-progress-text');
 
 const playerPanel = document.getElementById('player-panel');
 const playerBody = document.getElementById('player-body');
@@ -240,6 +245,35 @@ function resetUploadProgress() {
   uploadStatus.classList.add('hidden');
 }
 
+function showChapterUploadProgress(message, percent) {
+  if (!chapterUploadStatus || !chapterUploadProgressBar || !chapterUploadProgressText) {
+    return;
+  }
+
+  chapterUploadStatus.classList.remove('hidden');
+
+  if (typeof percent === 'number' && Number.isFinite(percent)) {
+    const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+    chapterUploadProgressBar.style.width = `${clamped}%`;
+  } else {
+    chapterUploadProgressBar.style.width = '0%';
+  }
+
+  if (message) {
+    chapterUploadProgressText.textContent = message;
+  }
+}
+
+function resetChapterUploadProgress() {
+  if (!chapterUploadStatus || !chapterUploadProgressBar || !chapterUploadProgressText) {
+    return;
+  }
+
+  chapterUploadProgressBar.style.width = '0%';
+  chapterUploadProgressText.textContent = 'Gotowy do przesyłania.';
+  chapterUploadStatus.classList.add('hidden');
+}
+
 function setFormDisabled(form, disabled) {
   if (!form || !form.elements) {
     return;
@@ -391,6 +425,9 @@ function updateAdminView(mode = adminViewMode) {
       adminToggleBtn.removeAttribute('aria-pressed');
     }
     adminViewMode = 'library';
+    if (document.body) {
+      document.body.classList.remove('admin-panel-open');
+    }
     return;
   }
 
@@ -412,6 +449,10 @@ function updateAdminView(mode = adminViewMode) {
   } else {
     librarySection.classList.remove('hidden');
     uploadSection.classList.add('hidden');
+  }
+  
+  if (document.body) {
+    document.body.classList.toggle('admin-panel-open', adminViewMode === 'admin');
   }
 }
 
@@ -451,6 +492,9 @@ async function setLoggedIn(user) {
       adminToggleBtn.removeAttribute('aria-pressed');
     }
     adminViewMode = 'library';
+    if (document.body) {
+      document.body.classList.remove('admin-panel-open');
+    }
     uploadSection.classList.add('hidden');
     librarySection.classList.add('hidden');
     loginSection.classList.remove('hidden');
@@ -468,12 +512,6 @@ async function setLoggedIn(user) {
     resetPlayer();
     setPlaybackSpeed(1, { persist: false });
     resetUploadProgress();
-    if (adminStatsContainer) {
-      adminStatsContainer.innerHTML = '';
-      if (adminStatsEmpty) {
-        adminStatsContainer.appendChild(adminStatsEmpty);
-      }
-    }
     resetReviews();
   }
   adminStatsContainer.innerHTML = '';
@@ -556,14 +594,23 @@ function closeSpeedModal() {
   modalInitialSpeed = null;
 }
 
-async function fetchSession() {
+async function fetchAdminStats() {
+  if (!currentUser || currentUser.role !== 'admin' || !adminStatsContainer) {
+    return;
+  }
+
+  if (adminViewMode === 'admin') {
+    showAdminStatsLoading();
+  }
+
   try {
     const session = await apiRequest('/api/session');
     if (session) {
       await setLoggedIn(session);
     }
   } catch (error) {
-    console.warn('Brak aktywnej sesji');
+    console.error('Nie udało się pobrać statystyk:', error);
+    renderAdminStatsError(error.message);
   }
 }
 
@@ -613,9 +660,6 @@ async function fetchLibrary() {
 
     renderLibrary();
     attemptAutoResume();
-    if (currentUser && currentUser.role === 'admin') {
-      fetchAdminStats();
-    }
   } catch (error) {
     console.error(error);
     alert(`Nie udało się pobrać biblioteki: ${error.message}`);
@@ -624,6 +668,7 @@ async function fetchLibrary() {
 
 function renderLibrary() {
   updateCategorySelect();
+  updateChapterTargetSelect();
 
   const uncategorizedCount = libraryItems.filter((item) => !item.categoryId).length;
   const hasCategories = categories.length > 0;
@@ -859,6 +904,78 @@ function updateCategorySelect() {
   categorySelect.dataset.initialized = 'true';
 }
 
+function updateChapterTargetSelect() {
+  if (!chapterAudiobookSelect) {
+    return;
+  }
+
+  const wasInitialized = chapterAudiobookSelect.dataset.initialized === 'true';
+  const previousValue = chapterAudiobookSelect.dataset.selectedId || chapterAudiobookSelect.value;
+
+  chapterAudiobookSelect.innerHTML = '';
+
+  const placeholderOption = document.createElement('option');
+  placeholderOption.value = '';
+  placeholderOption.textContent = libraryItems.length
+    ? 'Wybierz audiobook'
+    : 'Brak audiobooków do uzupełnienia';
+  placeholderOption.disabled = true;
+  placeholderOption.selected = true;
+  chapterAudiobookSelect.appendChild(placeholderOption);
+
+  const sortedItems = [...libraryItems].sort((a, b) => {
+    const titleA = (a.title || '').toLocaleLowerCase('pl');
+    const titleB = (b.title || '').toLocaleLowerCase('pl');
+    return titleA.localeCompare(titleB, 'pl', { sensitivity: 'base' });
+  });
+
+  sortedItems.forEach((item) => {
+    if (!item || !item.id) {
+      return;
+    }
+    const option = document.createElement('option');
+    option.value = item.id;
+    const authorName = resolveAuthorName(item.author);
+    option.textContent = authorName ? `${item.title} — ${authorName}` : item.title;
+    chapterAudiobookSelect.appendChild(option);
+  });
+
+  const hasItems = sortedItems.length > 0;
+  chapterAudiobookSelect.disabled = !hasItems;
+  if (chapterFilesInput) {
+    chapterFilesInput.disabled = !hasItems;
+  }
+
+  if (!hasItems) {
+    chapterAudiobookSelect.selectedIndex = 0;
+    delete chapterAudiobookSelect.dataset.selectedId;
+    chapterAudiobookSelect.dataset.initialized = 'true';
+    return;
+  }
+
+  const availableIds = sortedItems.map((item) => item.id);
+  let nextValue = previousValue;
+
+  if (!wasInitialized) {
+    nextValue = '';
+  }
+
+  if (!nextValue || !availableIds.includes(nextValue)) {
+    nextValue = '';
+  }
+
+  if (nextValue) {
+    chapterAudiobookSelect.value = nextValue;
+    placeholderOption.selected = false;
+    chapterAudiobookSelect.dataset.selectedId = nextValue;
+  } else {
+    chapterAudiobookSelect.selectedIndex = 0;
+    delete chapterAudiobookSelect.dataset.selectedId;
+  }
+
+  chapterAudiobookSelect.dataset.initialized = 'true';
+}
+
 function updateChapterSelect(chapters, selectedId) {
   if (!chapterSelect) {
     return;
@@ -978,154 +1095,6 @@ function highlightCurrentTrack() {
       item.classList.remove('playing');
     }
   });
-}
-
-function createStatsMessage(text) {
-  const paragraph = document.createElement('p');
-  paragraph.className = 'stats-empty';
-  paragraph.textContent = text;
-  return paragraph;
-}
-
-function showAdminStatsLoading() {
-  if (!adminStatsContainer) {
-    return;
-  }
-  adminStatsContainer.innerHTML = '';
-  adminStatsContainer.appendChild(createStatsMessage('Ładowanie statystyk...'));
-}
-
-function renderAdminStats(data) {
-  if (!adminStatsContainer) {
-    return;
-  }
-
-  const stats = Array.isArray(data)
-    ? data
-    : data && Array.isArray(data.users)
-    ? data.users
-    : [];
-
-  adminStatsContainer.innerHTML = '';
-
-  if (!stats.length) {
-    if (adminStatsEmpty) {
-      adminStatsContainer.appendChild(adminStatsEmpty);
-    } else {
-      adminStatsContainer.appendChild(
-        createStatsMessage('Brak zapisanych postępów słuchania.')
-      );
-    }
-    return;
-  }
-
-  stats.forEach((userStat) => {
-    if (!userStat || !userStat.username) {
-      return;
-    }
-
-    const card = document.createElement('article');
-    card.className = 'stats-user';
-
-    const header = document.createElement('div');
-    header.className = 'stats-user-header';
-
-    const title = document.createElement('h4');
-    title.textContent = userStat.username;
-    header.appendChild(title);
-
-    const total = document.createElement('span');
-    total.className = 'stats-total';
-    total.textContent = `Łącznie: ${formatDurationDetailed(
-      typeof userStat.totalSeconds === 'number' ? userStat.totalSeconds : 0
-    )}`;
-    header.appendChild(total);
-
-    card.appendChild(header);
-
-    const items = Array.isArray(userStat.items) ? userStat.items : [];
-
-    if (items.length) {
-      const currentBookId =
-        typeof userStat.currentBookId === 'string' && userStat.currentBookId.trim()
-          ? userStat.currentBookId
-          : userStat.current && userStat.current.audioId;
-      const currentEntry =
-        (currentBookId && items.find((entry) => entry && entry.audioId === currentBookId)) ||
-        items[0];
-
-      if (currentEntry) {
-        const current = document.createElement('p');
-        current.className = 'stats-current';
-        const chapterInfo =
-          currentEntry.lastChapterName && currentEntry.lastChapterName.trim()
-            ? ` – ${currentEntry.lastChapterName}`
-            : '';
-        const lastPosition = formatTime(
-          typeof currentEntry.lastPositionSeconds === 'number'
-            ? currentEntry.lastPositionSeconds
-            : 0
-        );
-        current.textContent = `Obecnie: ${currentEntry.title || 'Audiobook'}${chapterInfo} (${lastPosition})`;
-        card.appendChild(current);
-      }
-
-      const list = document.createElement('ul');
-      list.className = 'stats-books';
-
-      items.forEach((entry) => {
-        if (!entry || !entry.title) {
-          return;
-        }
-        const listItem = document.createElement('li');
-        const chapterInfo =
-          entry.lastChapterName && entry.lastChapterName.trim()
-            ? ` – ${entry.lastChapterName}`
-            : '';
-        listItem.textContent = `${entry.title}${chapterInfo}: ${formatDurationDetailed(
-          typeof entry.totalSeconds === 'number' ? entry.totalSeconds : 0
-        )}`;
-        list.appendChild(listItem);
-      });
-
-      card.appendChild(list);
-    } else {
-      const empty = document.createElement('p');
-      empty.className = 'stats-current';
-      empty.textContent = 'Brak zapisanych postępów.';
-      card.appendChild(empty);
-    }
-
-    adminStatsContainer.appendChild(card);
-  });
-}
-
-function renderAdminStatsError(message) {
-  if (!adminStatsContainer) {
-    return;
-  }
-  adminStatsContainer.innerHTML = '';
-  adminStatsContainer.appendChild(
-    createStatsMessage(`Nie udało się pobrać statystyk: ${message}`)
-  );
-}
-
-async function fetchAdminStats() {
-  if (!currentUser || currentUser.role !== 'admin' || !adminStatsContainer) {
-    return;
-  }
-
-  if (adminViewMode === 'admin') {
-    showAdminStatsLoading();
-  }
-
-  try {
-    const response = await apiRequest('/api/admin/stats');
-    renderAdminStats(response);
-  } catch (error) {
-    console.error('Nie udało się pobrać statystyk:', error);
-    renderAdminStatsError(error.message);
-  }
 }
 
 function resetReviews() {
@@ -1592,6 +1561,9 @@ if (userForm) {
     event.preventDefault();
     const username = newUsernameInput ? newUsernameInput.value.trim() : '';
     const password = newPasswordInput ? newPasswordInput.value.trim() : '';
+    const roleValue = newRoleSelect ? newRoleSelect.value : 'user';
+    const role = roleValue === 'admin' ? 'admin' : 'user';
+
     if (!username || !password) {
       return;
     }
@@ -1600,10 +1572,17 @@ if (userForm) {
       await apiRequest('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, role })
       });
       userForm.reset();
-      alert(`Użytkownik "${username}" został dodany.`);
+      if (newRoleSelect) {
+        newRoleSelect.value = 'user';
+      }
+      alert(
+        `Użytkownik "${username}" został dodany z rolą ${
+          role === 'admin' ? 'administratora' : 'słuchacza'
+        }.`
+      );
     } catch (error) {
       alert(`Nie udało się dodać użytkownika: ${error.message}`);
     }
@@ -1627,8 +1606,19 @@ if (adminToggleBtn) {
     }
     const nextMode = adminViewMode === 'admin' ? 'library' : 'admin';
     updateAdminView(nextMode);
-    if (nextMode === 'admin') {
-      fetchAdminStats();
+  });
+}
+
+if (chapterAudiobookSelect) {
+  chapterAudiobookSelect.addEventListener('change', () => {
+    if (!chapterAudiobookSelect) {
+      return;
+    }
+    const value = chapterAudiobookSelect.value || '';
+    if (value) {
+      chapterAudiobookSelect.dataset.selectedId = value;
+    } else {
+      delete chapterAudiobookSelect.dataset.selectedId;
     }
   });
 }
@@ -1706,6 +1696,98 @@ if (uploadForm) {
     xhr.addEventListener('abort', () => {
       showUploadProgress('Przesyłanie zostało przerwane.', 0);
       setFormDisabled(uploadForm, false);
+    });
+
+    xhr.send(formData);
+  });
+}
+
+if (chapterUploadForm) {
+  chapterUploadForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+
+    if (!chapterAudiobookSelect || !chapterFilesInput) {
+      return;
+    }
+
+    const audiobookId = chapterAudiobookSelect.value;
+    if (!audiobookId) {
+      alert('Wybierz audiobook, do którego chcesz dodać rozdziały.');
+      return;
+    }
+
+    const files = chapterFilesInput.files;
+    if (!files || files.length === 0) {
+      alert('Dodaj przynajmniej jeden plik audio.');
+      return;
+    }
+
+    const formData = new FormData();
+    Array.from(files).forEach((file) => {
+      formData.append('audioFiles', file);
+    });
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/library/${encodeURIComponent(audiobookId)}/chapters`);
+    xhr.responseType = 'json';
+
+    setFormDisabled(chapterUploadForm, true);
+    showChapterUploadProgress('Przygotowywanie przesyłania...', 0);
+
+    xhr.upload.addEventListener('progress', (progressEvent) => {
+      if (!progressEvent.lengthComputable) {
+        showChapterUploadProgress('Przesyłanie plików...', null);
+        return;
+      }
+      const percent = (progressEvent.loaded / progressEvent.total) * 100;
+      showChapterUploadProgress(`Przesyłanie plików... ${Math.round(percent)}%`, percent);
+    });
+
+    xhr.addEventListener('load', async () => {
+      try {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          showChapterUploadProgress('Rozdziały zostały dodane. Aktualizacja biblioteki...', 100);
+          const selectedId = audiobookId;
+          chapterFilesInput.value = '';
+          await fetchLibrary();
+          if (chapterAudiobookSelect) {
+            const exists = Array.from(chapterAudiobookSelect.options).some(
+              (option) => option.value === selectedId
+            );
+            if (exists) {
+              chapterAudiobookSelect.value = selectedId;
+              chapterAudiobookSelect.dataset.selectedId = selectedId;
+            }
+          }
+          setTimeout(() => {
+            resetChapterUploadProgress();
+          }, 2000);
+        } else {
+          const response = xhr.response;
+          const message =
+            (response && response.message) ||
+            xhr.statusText ||
+            'Nie udało się dodać rozdziałów.';
+          showChapterUploadProgress(`Nie udało się dodać rozdziałów: ${message}`, 0);
+          alert(`Nie udało się dodać rozdziałów: ${message}`);
+        }
+      } catch (error) {
+        showChapterUploadProgress(`Nie udało się dodać rozdziałów: ${error.message}`, 0);
+        alert(`Nie udało się dodać rozdziałów: ${error.message}`);
+      } finally {
+        setFormDisabled(chapterUploadForm, false);
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      showChapterUploadProgress('Wystąpił błąd sieci podczas przesyłania.', 0);
+      alert('Nie udało się dodać rozdziałów: błąd sieci.');
+      setFormDisabled(chapterUploadForm, false);
+    });
+
+    xhr.addEventListener('abort', () => {
+      showChapterUploadProgress('Przesyłanie zostało przerwane.', 0);
+      setFormDisabled(chapterUploadForm, false);
     });
 
     xhr.send(formData);

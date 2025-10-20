@@ -49,8 +49,15 @@
             Hasło
             <input type="password" id="new-password" required />
           </label>
+          <label>
+            Rola
+            <select id="new-role" required>
+              <option value="user">Słuchacz</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </label>
           <button type="submit">Utwórz użytkownika</button>
-          <p class="hint">Nowi użytkownicy otrzymują uprawnienia słuchacza.</p>
+          <p class="hint">Możesz tworzyć konta słuchaczy lub dodatkowych administratorów.</p>
         </form>
         <form id="category-form" class="admin-card">
           <h3>Dodaj kategorię</h3>
@@ -104,13 +111,25 @@
           </div>
           <p class="hint">Możesz dodać wiele plików audio jako oddzielne rozdziały. Okładka jest opcjonalna.</p>
         </form>
-        <section id="stats-card" class="admin-card" aria-live="polite">
-          <h3>Statystyki słuchania</h3>
-          <p class="hint">Podgląd aktywności użytkowników – kto czego słucha i jak długo.</p>
-          <div id="user-stats" class="stats-list">
-            <p id="user-stats-empty" class="stats-empty">Brak zapisanych postępów słuchania.</p>
+        <form id="chapter-upload-form" class="admin-card" enctype="multipart/form-data">
+          <h3>Dodaj rozdziały do istniejącego audiobooka</h3>
+          <label>
+            Audiobook
+            <select id="chapter-audiobook" required></select>
+          </label>
+          <label>
+            Nowe nagrania audio
+            <input id="chapter-files" type="file" name="audioFiles" accept="audio/*" multiple required />
+          </label>
+          <button type="submit">Dołącz rozdziały</button>
+          <div id="chapter-upload-status" class="upload-status hidden" aria-live="polite">
+            <div class="progress-track">
+              <div id="chapter-upload-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <p id="chapter-upload-progress-text" class="progress-text">Gotowy do przesyłania.</p>
           </div>
-        </section>
+          <p class="hint">Możesz dosłać brakujące rozdziały w mniejszych paczkach bez konieczności ponownego wysyłania całego audiobooka.</p>
+        </form>
       </div>
     </section>
   </div>
@@ -223,9 +242,16 @@
       <div class="content">
         <div class="item-header">
           <h3></h3>
-        <div class="item-actions">
-          <button class="secondary delete-btn hidden" type="button">Usuń</button>
-          <button class="primary play-btn" type="button">Odtwórz</button>
+          <div class="item-actions">
+            <button class="secondary delete-btn hidden" type="button">Usuń</button>
+            <button class="primary play-btn" type="button">Odtwórz</button>
+          </div>
+        </div>
+        <p class="author-line">Autor: <span class="author-text"></span></p>
+        <p class="description"></p>
+        <ul class="tag-list" aria-label="Tagi"></ul>
+        <div class="links">
+          <a class="pdf-link" target="_blank" rel="noopener">Pobierz PDF</a>
         </div>
       </div>
       <p class="author-line">Autor: <span class="author-text"></span></p>

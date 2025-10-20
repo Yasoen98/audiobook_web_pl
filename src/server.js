@@ -290,96 +290,6 @@ function buildReviewSummary(audioId, reviewsData) {
   };
 }
 
-function buildListeningStats() {
-  const users = loadUsers();
-  const progress = loadJson(PROGRESS_FILE) || {};
-  const libraryItems = (loadJson(LIBRARY_FILE) || []).map(normalizeLibraryItem);
-  const libraryMap = new Map(libraryItems.map((item) => [item.id, item]));
-
-  const stats = Object.keys(users).map((username) => {
-    const entry = normalizeProgressEntry(progress[username]);
-    const items = [];
-    let totalSeconds = 0;
-
-    const progressItems = entry.items && typeof entry.items === 'object' ? entry.items : {};
-
-    Object.keys(progressItems).forEach((audioId) => {
-      const itemProgress = progressItems[audioId];
-      if (!itemProgress || typeof itemProgress !== 'object') {
-        return;
-      }
-
-      const chapters =
-        itemProgress.chapters && typeof itemProgress.chapters === 'object'
-          ? itemProgress.chapters
-          : {};
-
-      let accumulated = 0;
-      Object.keys(chapters).forEach((chapterId) => {
-        const value = chapters[chapterId];
-        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-          accumulated += value;
-        }
-      });
-
-      totalSeconds += accumulated;
-
-      let lastChapterId =
-        typeof itemProgress.lastChapterId === 'string' && itemProgress.lastChapterId.trim()
-          ? itemProgress.lastChapterId
-          : null;
-
-      if (!lastChapterId) {
-        const chapterIds = Object.keys(chapters);
-        if (chapterIds.length) {
-          lastChapterId = chapterIds[0];
-        }
-      }
-
-      const libraryItem = libraryMap.get(audioId);
-      let lastChapterName = null;
-      if (libraryItem && Array.isArray(libraryItem.chapters)) {
-        const foundChapter = libraryItem.chapters.find((chapter) => chapter.id === lastChapterId);
-        if (foundChapter) {
-          lastChapterName = foundChapter.name;
-        }
-      }
-
-      const lastPositionSeconds =
-        lastChapterId && typeof chapters[lastChapterId] === 'number'
-          ? Math.max(0, chapters[lastChapterId])
-          : 0;
-
-      items.push({
-        audioId,
-        title: libraryItem ? libraryItem.title : 'Usunięty audiobook',
-        author: libraryItem ? libraryItem.author : null,
-        lastChapterId: lastChapterId || null,
-        lastChapterName,
-        lastPositionSeconds,
-        totalSeconds: accumulated
-      });
-    });
-
-    items.sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
-
-    const currentItem =
-      entry.lastBookId && items.find((item) => item.audioId === entry.lastBookId);
-
-    return {
-      username,
-      role: users[username].role || 'user',
-      totalSeconds,
-      currentBookId: entry.lastBookId || null,
-      current: currentItem || null,
-      items
-    };
-  });
-
-  stats.sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
-  return stats;
-}
-
 function loadJson(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -512,9 +422,10 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.post('/api/users', requireAdmin, (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, role } = req.body || {};
   const trimmedUsername = typeof username === 'string' ? username.trim() : '';
   const trimmedPassword = typeof password === 'string' ? password.trim() : '';
+  const normalizedRole = role === 'admin' ? 'admin' : 'user';
 
   if (!trimmedUsername || !trimmedPassword) {
     return res.status(400).json({ message: 'Login i hasło są wymagane.' });
@@ -525,10 +436,10 @@ app.post('/api/users', requireAdmin, (req, res) => {
     return res.status(409).json({ message: 'Użytkownik o podanej nazwie już istnieje.' });
   }
 
-  users[trimmedUsername] = { password: trimmedPassword, role: 'user' };
+  users[trimmedUsername] = { password: trimmedPassword, role: normalizedRole };
   saveUsers(users);
 
-  res.status(201).json({ username: trimmedUsername, role: 'user' });
+  res.status(201).json({ username: trimmedUsername, role: normalizedRole });
 });
 
 app.get('/api/session', (req, res) => {
@@ -601,11 +512,6 @@ app.delete('/api/categories/:id', requireAdmin, (req, res) => {
   }
 
   res.json({ message: 'Kategoria została usunięta.' });
-});
-
-app.get('/api/admin/stats', requireAdmin, (req, res) => {
-  const stats = buildListeningStats();
-  res.json(stats);
 });
 
 app.get('/api/library', requireAuth, (req, res) => {
@@ -682,6 +588,82 @@ app.post(
     saveJson(LIBRARY_FILE, library);
 
     res.status(201).json(newItem);
+  }
+);
+
+app.post(
+  '/api/library/:id/chapters',
+  requireAdmin,
+  upload.array('audioFiles', 150),
+  (req, res) => {
+    const { id } = req.params;
+    const trimmedId = typeof id === 'string' ? id.trim() : '';
+    const files = Array.isArray(req.files) ? req.files : [];
+
+    if (!trimmedId) {
+      return res.status(400).json({ message: 'Identyfikator audiobooka jest wymagany.' });
+    }
+
+    if (!files.length) {
+      return res.status(400).json({ message: 'Dodaj przynajmniej jeden plik audio.' });
+    }
+
+    const library = loadJson(LIBRARY_FILE) || [];
+    const index = library.findIndex((item) => item && item.id === trimmedId);
+
+    if (index === -1) {
+      return res.status(404).json({ message: 'Nie znaleziono audiobooka.' });
+    }
+
+    const libraryItem = library[index] || {};
+    let chapters = Array.isArray(libraryItem.chapters)
+      ? libraryItem.chapters.filter((chapter) => chapter && chapter.url)
+      : [];
+
+    if (!chapters.length && libraryItem.audioUrl) {
+      chapters = [
+        {
+          id: `${trimmedId}-chapter-0`,
+          name: libraryItem.title ? `${libraryItem.title} – Rozdział 1` : 'Rozdział 1',
+          url: libraryItem.audioUrl
+        }
+      ];
+      delete libraryItem.audioUrl;
+    }
+
+    const startingIndex = chapters.length;
+
+    files.forEach((file, fileIndex) => {
+      if (!file || !file.filename) {
+        return;
+      }
+      const position = startingIndex + fileIndex;
+      const baseName = file.originalname
+        ? path.parse(file.originalname).name
+        : null;
+      const name = baseName && baseName.trim()
+        ? baseName.trim()
+        : `Rozdział ${position + 1}`;
+
+      chapters.push({
+        id: `${trimmedId}-chapter-${position}`,
+        name,
+        url: `/uploads/audio/${file.filename}`
+      });
+    });
+
+    if (!chapters.length) {
+      return res.status(400).json({ message: 'Nie udało się przetworzyć przesłanych plików audio.' });
+    }
+
+    library[index] = {
+      ...libraryItem,
+      chapters
+    };
+
+    saveJson(LIBRARY_FILE, library);
+
+    res.status(201).json(normalizeLibraryItem(library[index]));
   }
 );
 

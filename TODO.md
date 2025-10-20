@@ -5,3 +5,5 @@
 - Możliwość tworzenia playlist/ulubionych oraz udostępniania ich innym użytkownikom biblioteki.
 - Integracja z usługami chmurowymi do automatycznego tworzenia kopii zapasowych nagrań i okładek.
 - Moduł powiadomień e-mail/push o nowych dodanych audiobookach lub aktualizacjach w ulubionych kategoriach.
+- Eksport raportów odsłuchań do plików CSV z możliwością filtrowania po użytkownikach i audiobookach.
+- Dodanie panelu zarządzania rolami (promocja/degradacja) z przeglądem istniejących kont.
