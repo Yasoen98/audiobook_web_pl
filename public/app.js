@@ -3,7 +3,7 @@ const uploadSection = document.getElementById('upload-section');
 const librarySection = document.getElementById('library-section');
 const userInfo = document.getElementById('user-info');
 const welcomeText = document.getElementById('welcome-text');
-const logoutBtn = document.getElementById('logout-btn');
+const logoutBtn = document.getElementById('logout-btn');  
 const loginForm = document.getElementById('login-form');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
@@ -476,6 +476,8 @@ async function setLoggedIn(user) {
     }
     resetReviews();
   }
+  adminStatsContainer.innerHTML = '';
+  adminStatsContainer.appendChild(createStatsMessage('Ładowanie statystyk...'));
 }
 
 function resetPlayer() {
@@ -1955,6 +1957,7 @@ audioElement.addEventListener('ended', () => {
     });
   }
   highlightCurrentTrack();
+  scheduleRecommendationsRefresh(2000);
 });
 
 audioElement.volume = Number(volumeSlider.value);
