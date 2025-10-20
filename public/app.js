@@ -3,7 +3,7 @@ const uploadSection = document.getElementById('upload-section');
 const librarySection = document.getElementById('library-section');
 const userInfo = document.getElementById('user-info');
 const welcomeText = document.getElementById('welcome-text');
-const logoutBtn = document.getElementById('logout-btn');
+const logoutBtn = document.getElementById('logout-btn');  
 const loginForm = document.getElementById('login-form');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
@@ -1582,6 +1582,7 @@ function renderRecommendations(list) {
     recommendationsEmpty.classList.remove('hidden');
     return;
   }
+}
 
   recommendationsList.classList.remove('hidden');
   recommendationsEmpty.classList.add('hidden');
@@ -1769,6 +1770,8 @@ async function loadTrack(item, options = {}) {
     altText: item.title ? `Okładka audiobooka ${item.title}` : 'Okładka audiobooka',
     fallbackAlt: 'Brak okładki'
   });
+
+  updateChapterSelect(chapters, selectedChapter.id);
 
   updateChapterSelect(chapters, selectedChapter.id);
 
