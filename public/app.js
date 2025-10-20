@@ -28,12 +28,6 @@ const uploadProgressBar = document.getElementById('upload-progress-bar');
 const uploadProgressText = document.getElementById('upload-progress-text');
 const adminStatsContainer = document.getElementById('user-stats');
 const adminStatsEmpty = document.getElementById('user-stats-empty');
-const recommendationsSection = document.getElementById('recommendations-section');
-const recommendationsList = document.getElementById('recommendations-list');
-const recommendationsEmpty = document.getElementById('recommendations-empty');
-const defaultRecommendationsEmptyText = recommendationsEmpty
-  ? recommendationsEmpty.textContent
-  : 'Brak rekomendacji.';
 
 const playerPanel = document.getElementById('player-panel');
 const playerBody = document.getElementById('player-body');
@@ -65,6 +59,10 @@ const reviewComment = document.getElementById('review-comment');
 const reviewFeedback = document.getElementById('review-feedback');
 const reviewsList = document.getElementById('reviews-list');
 const reviewsEmpty = document.getElementById('reviews-empty');
+const reviewExistingMessage = document.getElementById('review-existing-message');
+const defaultReviewExistingMessage = reviewExistingMessage
+  ? reviewExistingMessage.textContent
+  : '';
 
 let currentUser = null;
 let libraryItems = [];
@@ -82,8 +80,6 @@ let adminViewMode = 'library';
 const lastProgressUpdate = {};
 const UNCATEGORIZED_ID = '__uncategorized__';
 let currentReviewSummary = null;
-let recommendationsData = [];
-let recommendationsRefreshTimeout = null;
 
 async function apiRequest(url, options = {}) {
   const config = {
@@ -443,7 +439,6 @@ async function setLoggedIn(user) {
     progressState = createDefaultProgressState();
     autoResumeAttempted = false;
     resetReviews();
-    resetRecommendations();
     await fetchProgressState();
     await fetchLibrary();
     attemptAutoResume();
@@ -480,8 +475,9 @@ async function setLoggedIn(user) {
       }
     }
     resetReviews();
-    resetRecommendations();
   }
+  adminStatsContainer.innerHTML = '';
+  adminStatsContainer.appendChild(createStatsMessage('Ładowanie statystyk...'));
 }
 
 function resetPlayer() {
@@ -619,9 +615,6 @@ async function fetchLibrary() {
     attemptAutoResume();
     if (currentUser && currentUser.role === 'admin') {
       fetchAdminStats();
-    }
-    if (currentUser) {
-      fetchRecommendations();
     }
   } catch (error) {
     console.error(error);
@@ -1143,6 +1136,10 @@ function resetReviews() {
   if (reviewsSummary) {
     reviewsSummary.textContent = '';
   }
+  if (reviewExistingMessage) {
+    reviewExistingMessage.textContent = defaultReviewExistingMessage;
+    reviewExistingMessage.classList.add('hidden');
+  }
   if (reviewsList) {
     reviewsList.innerHTML = '';
     reviewsList.classList.add('hidden');
@@ -1152,6 +1149,7 @@ function resetReviews() {
   }
   if (reviewForm) {
     reviewForm.reset();
+    reviewForm.classList.remove('hidden');
   }
   if (reviewsSection) {
     reviewsSection.classList.add('hidden');
@@ -1188,16 +1186,40 @@ function renderReviews(summary) {
     }
   }
 
+  const userReview =
+    currentUser && Array.isArray(summary.reviews)
+      ? summary.reviews.find((entry) => entry && entry.username === currentUser.username)
+      : null;
+
   if (reviewForm) {
-    const userReview =
-      currentUser && Array.isArray(summary.reviews)
-        ? summary.reviews.find((entry) => entry && entry.username === currentUser.username)
-        : null;
-    if (reviewRating) {
-      reviewRating.value = userReview ? String(userReview.rating) : '';
+    if (userReview) {
+      reviewForm.classList.add('hidden');
+    } else {
+      reviewForm.classList.remove('hidden');
+      if (reviewRating) {
+        reviewRating.value = '';
+      }
+      if (reviewComment) {
+        reviewComment.value = '';
+      }
     }
-    if (reviewComment) {
-      reviewComment.value = userReview ? userReview.comment || '' : '';
+  }
+
+  if (reviewExistingMessage) {
+    if (userReview) {
+      const formattedRating = Number.isFinite(userReview.rating)
+        ? formatRating(userReview.rating) || userReview.rating
+        : null;
+      if (formattedRating) {
+        reviewExistingMessage.textContent = `Twoja recenzja została zapisana (ocena: ${formattedRating} / 5).`;
+      } else {
+        reviewExistingMessage.textContent = defaultReviewExistingMessage ||
+          'Dodałeś już recenzję dla tego audiobooka.';
+      }
+      reviewExistingMessage.classList.remove('hidden');
+    } else {
+      reviewExistingMessage.textContent = defaultReviewExistingMessage;
+      reviewExistingMessage.classList.add('hidden');
     }
   }
 
@@ -1311,157 +1333,6 @@ async function loadReviewsForTrack(audioId) {
   }
 }
 
-function resetRecommendations() {
-  recommendationsData = [];
-  if (recommendationsRefreshTimeout) {
-    clearTimeout(recommendationsRefreshTimeout);
-    recommendationsRefreshTimeout = null;
-  }
-  if (!recommendationsSection) {
-    return;
-  }
-  recommendationsSection.classList.add('hidden');
-  if (recommendationsList) {
-    recommendationsList.innerHTML = '';
-    recommendationsList.classList.remove('hidden');
-  }
-  if (recommendationsEmpty) {
-    recommendationsEmpty.textContent = defaultRecommendationsEmptyText;
-    recommendationsEmpty.classList.add('hidden');
-  }
-}
-
-function renderRecommendations(list) {
-  if (!recommendationsSection || !recommendationsList || !recommendationsEmpty) {
-    return;
-  }
-
-  recommendationsData = Array.isArray(list) ? list : [];
-  recommendationsSection.classList.remove('hidden');
-  recommendationsList.innerHTML = '';
-
-  if (!recommendationsData.length) {
-    recommendationsList.classList.add('hidden');
-    recommendationsEmpty.textContent = defaultRecommendationsEmptyText;
-    recommendationsEmpty.classList.remove('hidden');
-    return;
-  }
-
-  recommendationsList.classList.remove('hidden');
-  recommendationsEmpty.classList.add('hidden');
-
-  recommendationsData.forEach((item) => {
-    if (!item || !item.audioId) {
-      return;
-    }
-
-    const card = document.createElement('article');
-    card.className = 'recommendation-card';
-
-    const header = document.createElement('div');
-    header.className = 'recommendation-header';
-
-    const title = document.createElement('h4');
-    title.textContent = item.title || 'Audiobook';
-    header.appendChild(title);
-
-    if (Number.isFinite(item.averageRating) && item.totalReviews) {
-      const rating = document.createElement('span');
-      rating.className = 'recommendation-rating';
-      const formatted = formatRating(item.averageRating) || item.averageRating;
-      const countLabel = item.totalReviews === 1
-        ? '1 ocena'
-        : item.totalReviews >= 2 && item.totalReviews <= 4
-        ? `${item.totalReviews} oceny`
-        : `${item.totalReviews} ocen`;
-      rating.textContent = `${formatted} / 5 · ${countLabel}`;
-      header.appendChild(rating);
-    }
-
-    card.appendChild(header);
-
-    const meta = document.createElement('p');
-    meta.className = 'recommendation-meta';
-    const authorName = resolveAuthorName(item.author);
-    const categoryName = item.categoryName || 'Bez kategorii';
-    meta.textContent = `${authorName} · ${categoryName}`;
-    card.appendChild(meta);
-
-    const tagsContainer = document.createElement('ul');
-    tagsContainer.className = 'tag-list recommendation-tags';
-    renderTagList(tagsContainer, item.tags);
-    if (!tagsContainer.classList.contains('hidden')) {
-      card.appendChild(tagsContainer);
-    }
-
-    if (item.reason) {
-      const reason = document.createElement('p');
-      reason.className = 'recommendation-reason';
-      reason.textContent = item.reason;
-      card.appendChild(reason);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'recommendation-actions';
-
-    const playBtn = document.createElement('button');
-    playBtn.type = 'button';
-    playBtn.className = 'secondary';
-    playBtn.textContent = 'Odtwórz';
-    playBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      const match = libraryItems.find((entry) => entry.id === item.audioId);
-      if (match) {
-        loadTrack(match, { autoplay: true, resumeFromProgress: true });
-      }
-    });
-
-    actions.appendChild(playBtn);
-    card.appendChild(actions);
-
-    recommendationsList.appendChild(card);
-  });
-}
-
-function renderRecommendationsMessage(message) {
-  if (!recommendationsSection || !recommendationsEmpty || !recommendationsList) {
-    return;
-  }
-  recommendationsSection.classList.remove('hidden');
-  recommendationsList.innerHTML = '';
-  recommendationsList.classList.add('hidden');
-  recommendationsEmpty.textContent = message;
-  recommendationsEmpty.classList.remove('hidden');
-}
-
-async function fetchRecommendations() {
-  if (!currentUser || !recommendationsSection) {
-    return;
-  }
-
-  try {
-    const response = await apiRequest('/api/recommendations');
-    renderRecommendations(Array.isArray(response) ? response : []);
-  } catch (error) {
-    console.warn('Nie udało się pobrać rekomendacji:', error.message);
-    renderRecommendationsMessage(
-      `Nie udało się pobrać rekomendacji: ${error.message}`
-    );
-  }
-}
-
-function scheduleRecommendationsRefresh(delay = 4000) {
-  if (!currentUser) {
-    return;
-  }
-  if (recommendationsRefreshTimeout) {
-    clearTimeout(recommendationsRefreshTimeout);
-  }
-  recommendationsRefreshTimeout = setTimeout(() => {
-    recommendationsRefreshTimeout = null;
-    fetchRecommendations();
-  }, Math.max(delay, 500));
-}
 
 async function loadTrack(item, options = {}) {
   if (!currentUser) return;
@@ -1917,7 +1788,6 @@ if (reviewForm) {
       if (reviewFeedback) {
         reviewFeedback.textContent = 'Recenzja została zapisana.';
       }
-      scheduleRecommendationsRefresh(1500);
     } catch (error) {
       if (reviewFeedback) {
         reviewFeedback.textContent = `Nie udało się zapisać recenzji: ${error.message}`;
@@ -2046,7 +1916,6 @@ audioElement.addEventListener('timeupdate', () => {
       time,
       lastBookId: currentTrackId
     });
-    scheduleRecommendationsRefresh(8000);
   }
 });
 
@@ -2070,7 +1939,6 @@ audioElement.addEventListener('pause', () => {
       time,
       lastBookId: currentTrackId
     });
-    scheduleRecommendationsRefresh(4000);
   }
 });
 

@@ -290,173 +290,6 @@ function buildReviewSummary(audioId, reviewsData) {
   };
 }
 
-function buildRecommendationsForUser(username) {
-  const libraryItems = (loadJson(LIBRARY_FILE) || []).map(normalizeLibraryItem);
-  if (!libraryItems.length) {
-    return [];
-  }
-
-  const progress = loadJson(PROGRESS_FILE) || {};
-  const entry = normalizeProgressEntry(progress[username]);
-  const reviewsData = loadReviews();
-  const categoriesList = loadJson(CATEGORIES_FILE) || [];
-  const categoryNameMap = new Map(
-    categoriesList.map((category) => [category.id, category.name])
-  );
-
-  const libraryMap = new Map(libraryItems.map((item) => [item.id, item]));
-  const listenedSeconds = new Map();
-  const categoryScores = new Map();
-  const authorScores = new Map();
-  const tagScores = new Map();
-
-  const addScore = (map, key, value) => {
-    if (!key || !Number.isFinite(value) || value <= 0) {
-      return;
-    }
-    map.set(key, (map.get(key) || 0) + value);
-  };
-
-  const progressItems =
-    entry.items && typeof entry.items === 'object' ? entry.items : {};
-
-  Object.keys(progressItems).forEach((audioId) => {
-    const itemProgress = progressItems[audioId];
-    if (!itemProgress || typeof itemProgress !== 'object') {
-      return;
-    }
-
-    const chapters =
-      itemProgress.chapters && typeof itemProgress.chapters === 'object'
-        ? itemProgress.chapters
-        : {};
-
-    let total = 0;
-    Object.keys(chapters).forEach((chapterId) => {
-      const value = chapters[chapterId];
-      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-        total += value;
-      }
-    });
-
-    if (total <= 0) {
-      return;
-    }
-
-    listenedSeconds.set(audioId, total);
-
-    const libraryItem = libraryMap.get(audioId);
-    if (!libraryItem) {
-      return;
-    }
-
-    const weight = total / 60; // minutes
-    const categoryKey = libraryItem.categoryId || '__uncategorized__';
-    addScore(categoryScores, categoryKey, weight);
-
-    const authorKey = normalizeAuthorValue(libraryItem.author).toLocaleLowerCase('pl');
-    addScore(authorScores, authorKey, weight);
-
-    if (Array.isArray(libraryItem.tags)) {
-      libraryItem.tags.forEach((tag) => {
-        addScore(tagScores, tag.toLocaleLowerCase('pl'), weight);
-      });
-    }
-  });
-
-  const userReviewRatings = new Map();
-  Object.keys(reviewsData).forEach((audioId) => {
-    const list = Array.isArray(reviewsData[audioId]) ? reviewsData[audioId] : [];
-    list.forEach((review) => {
-      if (!review || review.username !== username) {
-        return;
-      }
-      const rating = clampRating(Number(review.rating));
-      if (rating !== null) {
-        userReviewRatings.set(audioId, rating);
-      }
-    });
-  });
-
-  const candidates = libraryItems.map((item) => {
-    const summary = buildReviewSummary(item.id, reviewsData);
-    const listened = listenedSeconds.get(item.id) || 0;
-    const categoryKey = item.categoryId || '__uncategorized__';
-    const authorKey = normalizeAuthorValue(item.author).toLocaleLowerCase('pl');
-    const tagsLower = Array.isArray(item.tags)
-      ? item.tags.map((tag) => tag.toLocaleLowerCase('pl'))
-      : [];
-
-    const catScore = (categoryScores.get(categoryKey) || 0) * 0.6;
-    const authorScore = (authorScores.get(authorKey) || 0) * 0.5;
-    const tagScore = tagsLower.reduce(
-      (acc, tag) => acc + (tagScores.get(tag) || 0),
-      0
-    ) * 0.4;
-    const ratingScore = summary.averageRating
-      ? summary.averageRating * Math.min(summary.totalReviews || 0, 20)
-      : 0;
-    const explorationBoost = listened > 0 && listened < 180 ? 2 : 0;
-    const noveltyPenalty = listened >= 600 || userReviewRatings.has(item.id) ? 5 : 0;
-    const rawScore =
-      catScore + authorScore + tagScore + ratingScore + explorationBoost;
-    const score = rawScore - noveltyPenalty;
-
-    const reasonParts = [];
-    if (catScore > 0.1) {
-      const categoryName = categoryNameMap.get(item.categoryId) || 'Bez kategorii';
-      reasonParts.push(`kategorię ${categoryName}`);
-    }
-    if (authorScore > 0.1 && item.author) {
-      reasonParts.push(`autora ${normalizeAuthorValue(item.author)}`);
-    }
-    if (tagScore > 0.1 && item.tags && item.tags.length) {
-      reasonParts.push(`tag ${item.tags[0]}`);
-    }
-    if (summary.averageRating && summary.averageRating >= 4 && summary.totalReviews) {
-      reasonParts.push('wysokie oceny słuchaczy');
-    }
-
-    const reason = reasonParts.length
-      ? `Polecamy ze względu na ${reasonParts.join(', ')}.`
-      : 'Polecamy na podstawie Twojej historii słuchania.';
-
-    return {
-      audioId: item.id,
-      title: item.title,
-      author: item.author,
-      categoryId: item.categoryId || null,
-      categoryName: categoryNameMap.get(item.categoryId) || null,
-      tags: item.tags || [],
-      averageRating: summary.averageRating,
-      totalReviews: summary.totalReviews,
-      listened,
-      score,
-      reason
-    };
-  });
-
-  const filtered = candidates
-    .filter((candidate) => candidate.score > 0)
-    .filter((candidate) => candidate.listened < 600 || candidate.totalReviews > 0);
-
-  const sorted = (filtered.length ? filtered : candidates)
-    .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  return sorted.slice(0, 6).map((candidate) => ({
-    audioId: candidate.audioId,
-    title: candidate.title,
-    author: candidate.author,
-    categoryId: candidate.categoryId,
-    categoryName: candidate.categoryName,
-    tags: candidate.tags,
-    averageRating: candidate.averageRating,
-    totalReviews: candidate.totalReviews,
-    reason: candidate.reason
-  }));
-}
-
 function buildListeningStats() {
   const users = loadUsers();
   const progress = loadJson(PROGRESS_FILE) || {};
@@ -952,38 +785,22 @@ app.post('/api/reviews', requireAuth, (req, res) => {
   );
 
   if (existingIndex !== -1) {
-    const previous = list[existingIndex] || {};
-    list[existingIndex] = {
-      username,
-      rating: numericRating,
-      comment: trimmedComment,
-      createdAt:
-        typeof previous.createdAt === 'string' && previous.createdAt.trim()
-          ? previous.createdAt
-          : now,
-      updatedAt: now
-    };
-  } else {
-    list.push({
-      username,
-      rating: numericRating,
-      comment: trimmedComment,
-      createdAt: now,
-      updatedAt: now
-    });
+    return res.status(409).json({ message: 'Recenzja dla tego audiobooka już istnieje.' });
   }
+
+  list.push({
+    username,
+    rating: numericRating,
+    comment: trimmedComment,
+    createdAt: now,
+    updatedAt: now
+  });
 
   reviewsData[normalizedId] = list;
   saveReviews(reviewsData);
 
   const summary = buildReviewSummary(normalizedId, reviewsData);
   res.json(summary);
-});
-
-app.get('/api/recommendations', requireAuth, (req, res) => {
-  const username = req.session.user.username;
-  const recommendations = buildRecommendationsForUser(username);
-  res.json(recommendations);
 });
 
 app.get('/api/progress', requireAuth, (req, res) => {
