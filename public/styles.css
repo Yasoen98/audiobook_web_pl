@@ -125,6 +125,17 @@ select {
   background-repeat: no-repeat;
 }
 
+#login-section form {
+  display: grid;
+  gap: 16px;
+  max-width: 420px;
+}
+
+#login-section .hint {
+  margin-top: 0;
+  line-height: 1.4;
+}
+
 button {
   background: linear-gradient(135deg, var(--accent-strong), var(--accent));
   color: #0f172a;
@@ -175,7 +186,9 @@ button.link:hover {
 .admin-panels {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 20px;
+  gap: 24px;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
 }
 
 .admin-card {
@@ -185,7 +198,7 @@ button.link:hover {
   padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
 }
 
 .upload-status {
@@ -287,6 +300,18 @@ button.link:hover {
 
 .admin-card button {
   align-self: flex-start;
+  margin-top: 4px;
+}
+
+.admin-card .hint {
+  margin-top: auto;
+  line-height: 1.45;
+}
+
+#upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .main-layout {
@@ -302,14 +327,31 @@ button.link:hover {
   padding: 28px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .library-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 16px;
-  margin-bottom: 24px;
+}
+
+.library-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.library-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .library-actions {
@@ -1008,6 +1050,15 @@ body.modal-open {
 
   section {
     padding: 20px;
+  }
+
+  .library-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .library-actions {
+    justify-content: flex-start;
   }
 
   .library-grid {

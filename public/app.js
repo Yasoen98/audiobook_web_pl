@@ -20,12 +20,6 @@ const libraryTitle = document.getElementById('library-title');
 const librarySubtitle = document.getElementById('library-subtitle');
 const libraryList = document.getElementById('library-list');
 const emptyLibrary = document.getElementById('empty-library');
-const libraryFilters = document.getElementById('library-filters');
-const librarySearchInput = document.getElementById('library-search');
-const filterAuthorSelect = document.getElementById('filter-author');
-const filterCategorySelect = document.getElementById('filter-category');
-const filterTagSelect = document.getElementById('filter-tag');
-const filtersClearBtn = document.getElementById('filters-clear');
 const categoryTemplate = document.getElementById('category-card-template');
 const itemTemplate = document.getElementById('library-item-template');
 const adminToggleBtn = document.getElementById('admin-toggle-btn');
@@ -87,7 +81,6 @@ let modalInitialSpeed = null;
 let adminViewMode = 'library';
 const lastProgressUpdate = {};
 const UNCATEGORIZED_ID = '__uncategorized__';
-let filtersState = { query: '', author: '', category: '', tag: '' };
 let currentReviewSummary = null;
 let recommendationsData = [];
 let recommendationsRefreshTimeout = null;
@@ -389,209 +382,6 @@ function renderTagList(container, tags) {
   });
 }
 
-function hasActiveFilters() {
-  return (
-    (filtersState.query && filtersState.query.trim()) ||
-    filtersState.author ||
-    filtersState.category ||
-    filtersState.tag
-  );
-}
-
-function getFilteredItems() {
-  if (!libraryItems.length) {
-    return [];
-  }
-
-  const query = filtersState.query.trim().toLocaleLowerCase('pl');
-  const authorFilter = filtersState.author;
-  const categoryFilter = filtersState.category;
-  const tagFilter = filtersState.tag;
-
-  return libraryItems.filter((item) => {
-    if (categoryFilter) {
-      const categoryKey = item.categoryId || UNCATEGORIZED_ID;
-      if (categoryFilter === UNCATEGORIZED_ID) {
-        if (item.categoryId) {
-          return false;
-        }
-      } else if (categoryKey !== categoryFilter) {
-        return false;
-      }
-    }
-
-    if (authorFilter) {
-      const authorKey = resolveAuthorName(item.author).toLocaleLowerCase('pl');
-      if (authorKey !== authorFilter) {
-        return false;
-      }
-    }
-
-    if (tagFilter) {
-      const tags = normalizeItemTags(item.tags).map((tag) =>
-        tag.toLocaleLowerCase('pl')
-      );
-      if (!tags.includes(tagFilter)) {
-        return false;
-      }
-    }
-
-    if (query) {
-      const haystack = [
-        item.title || '',
-        resolveAuthorName(item.author),
-        item.description || '',
-        ...normalizeItemTags(item.tags)
-      ]
-        .join(' ')
-        .toLocaleLowerCase('pl');
-
-      if (!haystack.includes(query)) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-}
-
-function populateFilterSelect(select, entries, placeholder) {
-  if (!select) {
-    return;
-  }
-
-  select.innerHTML = '';
-
-  const placeholderOption = document.createElement('option');
-  placeholderOption.value = '';
-  placeholderOption.textContent = placeholder;
-  select.appendChild(placeholderOption);
-
-  entries.forEach(([value, label]) => {
-    if (typeof value !== 'string') {
-      return;
-    }
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = label;
-    select.appendChild(option);
-  });
-}
-
-function setSelectValue(select, value) {
-  if (!select) {
-    return;
-  }
-  const available = Array.from(select.options).map((option) => option.value);
-  if (available.includes(value)) {
-    select.value = value;
-  } else {
-    select.value = '';
-  }
-}
-
-function updateLibraryFilters() {
-  if (!libraryFilters) {
-    return;
-  }
-
-  if (!libraryItems.length) {
-    libraryFilters.classList.add('hidden');
-    if (librarySearchInput) {
-      librarySearchInput.value = '';
-    }
-    if (filterAuthorSelect) {
-      filterAuthorSelect.innerHTML = '';
-    }
-    if (filterCategorySelect) {
-      filterCategorySelect.innerHTML = '';
-    }
-    if (filterTagSelect) {
-      filterTagSelect.innerHTML = '';
-    }
-    return;
-  }
-
-  libraryFilters.classList.remove('hidden');
-
-  if (librarySearchInput && librarySearchInput.value !== filtersState.query) {
-    librarySearchInput.value = filtersState.query;
-  }
-
-  if (filterAuthorSelect) {
-    const authors = new Map();
-    libraryItems.forEach((item) => {
-      const label = resolveAuthorName(item.author);
-      const key = label.toLocaleLowerCase('pl');
-      if (!authors.has(key)) {
-        authors.set(key, label);
-      }
-    });
-    const authorEntries = Array.from(authors.entries()).sort((a, b) =>
-      a[1].localeCompare(b[1], 'pl', { sensitivity: 'base' })
-    );
-    populateFilterSelect(filterAuthorSelect, authorEntries, 'Wszyscy autorzy');
-    setSelectValue(filterAuthorSelect, filtersState.author);
-  }
-
-  if (filterCategorySelect) {
-    const uniqueCategories = new Map();
-    categories.forEach((category) => {
-      if (category && category.id) {
-        uniqueCategories.set(category.id, category.name || 'Kategoria');
-      }
-    });
-    if (libraryItems.some((item) => !item.categoryId)) {
-      uniqueCategories.set(UNCATEGORIZED_ID, 'Bez kategorii');
-    }
-    const categoryEntries = Array.from(uniqueCategories.entries()).sort((a, b) =>
-      (a[1] || '').localeCompare(b[1] || '', 'pl', { sensitivity: 'base' })
-    );
-    populateFilterSelect(
-      filterCategorySelect,
-      categoryEntries,
-      'Wszystkie kategorie'
-    );
-    setSelectValue(filterCategorySelect, filtersState.category);
-  }
-
-  if (filterTagSelect) {
-    const tags = new Map();
-    libraryItems.forEach((item) => {
-      normalizeItemTags(item.tags).forEach((tag) => {
-        const key = tag.toLocaleLowerCase('pl');
-        if (!tags.has(key)) {
-          tags.set(key, tag);
-        }
-      });
-    });
-    const tagEntries = Array.from(tags.entries()).sort((a, b) =>
-      a[1].localeCompare(b[1], 'pl', { sensitivity: 'base' })
-    );
-    populateFilterSelect(filterTagSelect, tagEntries, 'Wszystkie tagi');
-    setSelectValue(filterTagSelect, filtersState.tag);
-  }
-}
-
-function resetFilters({ render = true } = {}) {
-  filtersState = { query: '', author: '', category: '', tag: '' };
-  if (librarySearchInput) {
-    librarySearchInput.value = '';
-  }
-  if (filterAuthorSelect) {
-    filterAuthorSelect.value = '';
-  }
-  if (filterCategorySelect) {
-    filterCategorySelect.value = '';
-  }
-  if (filterTagSelect) {
-    filterTagSelect.value = '';
-  }
-  if (render) {
-    renderLibrary();
-  }
-}
-
 function updateAdminView(mode = adminViewMode) {
   if (!librarySection || !uploadSection) {
     return;
@@ -652,21 +442,8 @@ async function setLoggedIn(user) {
     currentCategoryId = null;
     progressState = createDefaultProgressState();
     autoResumeAttempted = false;
-    filtersState = { query: '', author: '', category: '', tag: '' };
     resetReviews();
     resetRecommendations();
-    if (librarySearchInput) {
-      librarySearchInput.value = '';
-    }
-    if (filterAuthorSelect) {
-      filterAuthorSelect.value = '';
-    }
-    if (filterCategorySelect) {
-      filterCategorySelect.value = '';
-    }
-    if (filterTagSelect) {
-      filterTagSelect.value = '';
-    }
     await fetchProgressState();
     await fetchLibrary();
     attemptAutoResume();
@@ -855,30 +632,10 @@ async function fetchLibrary() {
 
 function renderLibrary() {
   updateCategorySelect();
-  updateLibraryFilters();
-
-  const filtersActive = hasActiveFilters();
-  const filteredItems = filtersActive ? getFilteredItems() : [];
 
   const uncategorizedCount = libraryItems.filter((item) => !item.categoryId).length;
   const hasCategories = categories.length > 0;
   const hasItems = libraryItems.length > 0;
-
-  if (filtersActive) {
-    categoryList.classList.add('hidden');
-    backToCategoriesBtn.classList.add('hidden');
-    const hasFilteredItems = renderItemsList(filteredItems);
-
-    libraryTitle.textContent = 'Wyniki wyszukiwania';
-    if (hasFilteredItems) {
-      librarySubtitle.textContent = `Znaleziono ${formatCount(filteredItems.length)} dopasowane do filtrów.`;
-      hideEmptyState();
-    } else {
-      librarySubtitle.textContent = 'Brak wyników dla wybranych filtrów.';
-      showEmptyState('Brak wyników. Spróbuj zmienić kryteria wyszukiwania.');
-    }
-    return;
-  }
 
   if (!hasCategories && uncategorizedCount === 0) {
     categoryList.classList.add('hidden');
@@ -2116,48 +1873,6 @@ if (backToCategoriesBtn) {
   backToCategoriesBtn.addEventListener('click', () => {
     currentCategoryId = null;
     renderLibrary();
-  });
-}
-
-if (librarySearchInput) {
-  let searchDebounce = null;
-  librarySearchInput.addEventListener('input', () => {
-    filtersState.query = librarySearchInput.value.trim();
-    if (searchDebounce) {
-      clearTimeout(searchDebounce);
-    }
-    searchDebounce = setTimeout(() => {
-      renderLibrary();
-    }, 200);
-  });
-}
-
-if (filterAuthorSelect) {
-  filterAuthorSelect.addEventListener('change', () => {
-    filtersState.author = filterAuthorSelect.value;
-    renderLibrary();
-  });
-}
-
-if (filterCategorySelect) {
-  filterCategorySelect.addEventListener('change', () => {
-    filtersState.category = filterCategorySelect.value;
-    currentCategoryId = null;
-    renderLibrary();
-  });
-}
-
-if (filterTagSelect) {
-  filterTagSelect.addEventListener('change', () => {
-    filtersState.tag = filterTagSelect.value;
-    renderLibrary();
-  });
-}
-
-if (filtersClearBtn) {
-  filtersClearBtn.addEventListener('click', () => {
-    currentCategoryId = null;
-    resetFilters();
   });
 }
 
